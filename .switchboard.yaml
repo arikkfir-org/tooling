@@ -19,4 +19,7 @@ pipelines:
       repo-url: "{{ .Repository.CloneURL }}"
       revision: "{{ .Revision }}"
       publish: "true"
-    cancelInProgress: true
+    # One publication at a time; a newer push replaces any waiting one.
+    concurrency:
+      group: publish
+      policy: latest
