@@ -1,0 +1,22 @@
+apiVersion: switchboard.kfirs.com/v1
+pipelines:
+  - name: ci
+    pipelineRun: .tekton/bundle.yaml
+    on:
+      pull_request:
+        branches: [main]
+      merge_group: {}
+    params:
+      repo-url: "{{ .Repository.CloneURL }}"
+      revision: "{{ .Revision }}"
+      publish: "false"
+  - name: publish
+    pipelineRun: .tekton/bundle.yaml
+    on:
+      push:
+        branches: [main]
+    params:
+      repo-url: "{{ .Repository.CloneURL }}"
+      revision: "{{ .Revision }}"
+      publish: "true"
+    cancelInProgress: true
