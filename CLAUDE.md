@@ -12,7 +12,7 @@ Org-wide developer tooling. Currently the Claude Code web bundle (`claude/`) and
 - `setup/setup.sh` must stay idempotent and fail-soft (warn and exit 0 unless `ARIKKFIR_CLAUDE_STRICT=1`). Keep the
   `@BUNDLE_SHA256@` placeholder; `scripts/build.sh` pins it.
 - Bundles are content-addressed and immutable. Upload bundles before `setup.sh`.
-- CI is Switchboard + Tekton (`.switchboard.yaml`, `.tekton/bundle.yaml`), not GitHub Actions.
+- CI is Octomatron + Tekton (`.octomatron.yaml`, `.tekton/bundle.yaml`), not GitHub Actions.
 
 ## Before finishing a change
 

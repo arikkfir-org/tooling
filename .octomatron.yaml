@@ -1,4 +1,4 @@
-apiVersion: switchboard.kfirs.com/v1
+apiVersion: octomatron.kfirs.com/v1
 pipelines:
   - name: ci
     pipelineRun: .tekton/bundle.yaml
