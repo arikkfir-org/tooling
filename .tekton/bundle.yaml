@@ -1,6 +1,6 @@
 # Builds and verifies the Claude Code bundle; when publish is "true", uploads it and the setup script to the public
-# arikkfir-claude bucket. Octomatron runs it as "ci" (pull requests, merge queue) and "publish" (main); see
-# .octomatron.yaml.
+# arikkfir-claude bucket. Octomaton runs it as "ci" (pull requests, merge queue) and "publish" (main); see
+# .octomaton.yaml.
 apiVersion: tekton.dev/v1
 kind: PipelineRun
 metadata:

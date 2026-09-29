@@ -33,8 +33,8 @@ fails it warns and exits 0, so a broken download never blocks a session; set `AR
 | `gs://arikkfir-claude/bundles/<sha256>.tar.gz` | immutable | content-addressed; never overwritten |
 | `gs://arikkfir-claude/setup.sh` | `no-cache` | pinned to the newest bundle; uploaded after it |
 
-Octomatron runs [`.tekton/bundle.yaml`](.tekton/bundle.yaml) as `ci` for pull requests and the merge queue, and as
-`publish` for pushes to `main` ([`.octomatron.yaml`](.octomatron.yaml)). Both build and verify; only `publish` uploads.
+Octomaton runs [`.tekton/bundle.yaml`](.tekton/bundle.yaml) as `ci` for pull requests and the merge queue, and as
+`publish` for pushes to `main` ([`.octomaton.yaml`](.octomaton.yaml)). Both build and verify; only `publish` uploads.
 Uploads use `gcloud storage rsync --checksums-only`, so unchanged objects are not rewritten.
 
 ### No secrets
