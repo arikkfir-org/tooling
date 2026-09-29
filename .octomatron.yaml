@@ -1,0 +1,25 @@
+apiVersion: octomatron.kfirs.com/v1
+pipelines:
+  - name: ci
+    pipelineRun: .tekton/bundle.yaml
+    on:
+      pull_request:
+        branches: [main]
+      merge_group: {}
+    params:
+      repo-url: "{{ .Repository.CloneURL }}"
+      revision: "{{ .Revision }}"
+      publish: "false"
+  - name: publish
+    pipelineRun: .tekton/bundle.yaml
+    on:
+      push:
+        branches: [main]
+    params:
+      repo-url: "{{ .Repository.CloneURL }}"
+      revision: "{{ .Revision }}"
+      publish: "true"
+    # One publication at a time; a newer push replaces any waiting one.
+    concurrency:
+      group: publish
+      policy: latest
