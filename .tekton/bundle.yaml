@@ -82,7 +82,7 @@ spec:
                 set -eu
                 shellcheck setup/setup.sh scripts/build.sh tests/test_setup.sh
             - name: test
-              image: gcr.io/google.com/cloudsdktool/google-cloud-cli:586.0.0-slim
+              image: gcr.io/google.com/cloudsdktool/google-cloud-cli:587.0.0-slim
               script: |
                 #!/usr/bin/env bash
                 set -euo pipefail
@@ -97,7 +97,7 @@ spec:
                 gitleaks dir dist/content --no-banner --redact --verbose
                 gitleaks dir . --no-banner --redact
             - name: publish
-              image: gcr.io/google.com/cloudsdktool/google-cloud-cli:586.0.0-slim
+              image: gcr.io/google.com/cloudsdktool/google-cloud-cli:587.0.0-slim
               script: |
                 #!/usr/bin/env bash
                 set -euo pipefail
