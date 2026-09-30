@@ -1,6 +1,7 @@
 # tooling
 
-Org-wide developer tooling. Currently the Claude Code web bundle (`claude/`) and its installer (`setup/setup.sh`).
+Org-wide developer tooling: the Claude Code web bundle (`claude/`) with its installer (`setup/setup.sh`), and the pull
+request reviewer (`reviewer/`).
 
 ## Rules
 
@@ -13,6 +14,14 @@ Org-wide developer tooling. Currently the Claude Code web bundle (`claude/`) and
   `@BUNDLE_SHA256@` placeholder; `scripts/build.sh` pins it.
 - Bundles are content-addressed and immutable. Upload bundles before `setup.sh`.
 - CI is Octomaton + Tekton (`.octomaton.yaml`, `.tekton/bundle.yaml`), not GitHub Actions.
+- `reviewer/`: Octomaton runs `reviewer/pipelinerun.yaml` from the default branch for every repository. Its Python is
+  stdlib-only; cover every rule and review action in `tests/test_reviewer.py`.
+- `reviewer/report.py` holds `arikkfir-reviewer`'s token: it never runs or trusts anything from the shared volume, and
+  reads only `findings.json` there, as data.
+- The findings schema lives in `reviewer/prompt.md`, `reviewer/findings.py` and the design (`hub/designs/pr-reviewer.md`
+  in `arikkfir-org/docs`). Change them together.
+- The reviewer's PipelineRun references only Secrets `reviewer-deepseek-api-key` and `reviewer-github-pat`, plus the
+  token workspace Octomaton binds. Never add another.
 
 ## Before finishing a change
 

@@ -1,0 +1,12 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "deepseek/deepseek-v4-pro",
+  "enabled_providers": ["deepseek"],
+  "share": "disabled",
+  "autoupdate": false,
+  "snapshot": false,
+  "permission": "allow",
+  "experimental": {
+    "continue_loop_on_deny": true
+  }
+}
