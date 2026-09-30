@@ -39,8 +39,8 @@ tools. The repositories are read-only. The only file you write is `findings.json
 5. Where the change interacts with code in other repositories or with the infrastructure (Terraform in `infra`,
    manifests in `delivery`, Octomaton's contract), use those repositories to check its claims, whether it can work,
    and how it fails. Anchor such a finding on the line that makes the claim.
-6. Check what you suspect: open the file, grep the other repositories, and run the repository's own checks when they
-   run offline. If you can't verify a suspicion, leave it out.
+6. Check what you suspect: open the file and grep the other repositories. If you can't verify a suspicion, leave it
+   out.
 
 Look for:
 
