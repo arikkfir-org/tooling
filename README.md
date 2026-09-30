@@ -62,7 +62,8 @@ the [design](https://github.com/arikkfir-org/docs/blob/main/hub/designs/pr-revie
 | [`reviewer/findings.py`](reviewer/findings.py) | Checks `findings.json` against the diff and the earlier findings |
 | [`reviewer/report.py`](reviewer/report.py) | Posts the review as `arikkfir-reviewer`, through [`reviewer/github.py`](reviewer/github.py) |
 
-Octomaton reads `reviewer/pipelinerun.yaml` from this repository's default branch for every repository, and the scripts
+Pipeline `review` is an organization pipeline, declared once in `arikkfir-org/.github`'s `.octomaton.yaml`, so every
+repository has it. Octomaton reads `reviewer/pipelinerun.yaml` from this repository's default branch, and the scripts
 and the prompt run from the default branch too: `setup` extracts `reviewer/` from it, and `report` clones its own copy.
 So no pull request, here or elsewhere, changes its own review; a change here takes effect once merged.
 
