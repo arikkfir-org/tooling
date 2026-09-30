@@ -20,8 +20,8 @@ request reviewer (`reviewer/`).
   reads only `findings.json` there, as data.
 - The findings schema lives in `reviewer/prompt.md`, `reviewer/findings.py` and the design (`hub/designs/pr-reviewer.md`
   in `arikkfir-org/docs`). Change them together.
-- The reviewer's PipelineRun references only Secrets `deepseek-api-key` and `reviewer-github-token`, plus the token
-  workspace Octomaton binds. Never add another.
+- The reviewer's PipelineRun references only Secrets `reviewer-deepseek-api-key` and `reviewer-github-pat`, plus the
+  token workspace Octomaton binds. Never add another.
 
 ## Before finishing a change
 

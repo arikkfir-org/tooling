@@ -740,5 +740,15 @@ class ReportTest(unittest.TestCase):
         self.assertTrue(summary.endswith(f"…\n\n[The review on GitHub]({REVIEW_URL})"))
 
 
+class PipelineRunTest(unittest.TestCase):
+    def test_mounts_only_the_reviewers_secrets(self):
+        with open(os.path.join(REVIEWER_DIR, "pipelinerun.yaml"), encoding="utf-8") as f:
+            text = f.read()
+        names = re.findall(r"secretKeyRef:\n\s+name: (\S+)\n", text)
+        self.assertEqual(len(names), text.count("secretKeyRef:"))
+        self.assertEqual(sorted(names), ["reviewer-deepseek-api-key", "reviewer-github-pat"])
+        self.assertIsNone(re.search(r"secretName:|secretRef:|^\s*secret:", text, re.MULTILINE))
+
+
 if __name__ == "__main__":
     unittest.main()

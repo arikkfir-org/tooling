@@ -190,7 +190,7 @@ spec:
               - name: DEEPSEEK_API_KEY
                 valueFrom:
                   secretKeyRef:
-                    name: deepseek-api-key
+                    name: reviewer-deepseek-api-key
                     key: api-key
               # fix continues review's session, and steps share only volumes.
               - name: HOME
@@ -310,7 +310,7 @@ spec:
                 - name: GITHUB_TOKEN
                   valueFrom:
                     secretKeyRef:
-                      name: reviewer-github-token
+                      name: reviewer-github-pat
                       key: token
                 - name: REPOSITORY
                   value: $(params.repository)
