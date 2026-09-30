@@ -1,6 +1,7 @@
 # tooling
 
-Developer tooling for the `arikkfir-org` hub. Today: a Claude Code bundle for Claude Code on the web.
+Developer tooling for the `arikkfir-org` hub: a Claude Code bundle for Claude Code on the web, and the pull request
+reviewer.
 
 ## Claude Code web bundle
 
@@ -46,10 +47,29 @@ The bundle is public. What guards it:
    settings keys that exist to carry credentials (`env`, `apiKeyHelper`, …).
 3. gitleaks scans the extracted bundle and the repository; any finding fails the pipeline.
 
+## Pull request reviewer
+
+Requesting a review from `arikkfir-reviewer` on a pull request runs an AI review: opencode with DeepSeek reads the pull
+request and the hub's repositories, and `arikkfir-reviewer` posts one review, with a thread per finding. Details are in
+the [design](https://github.com/arikkfir-org/docs/blob/main/hub/designs/pr-reviewer.md).
+
+| File | Purpose |
+| --- | --- |
+| [`reviewer/pipelinerun.yaml`](reviewer/pipelinerun.yaml) | The PipelineRun: tasks `setup`, `review` and `report` |
+| [`reviewer/prompt.md`](reviewer/prompt.md) | The reviewer's instructions, with the `findings.json` schema |
+| [`reviewer/opencode.json`](reviewer/opencode.json) | opencode's configuration: the model, no sharing, every tool allowed |
+| [`reviewer/state.py`](reviewer/state.py) | Writes `pr.json`: the pull request, its files, conversation, reviews and threads |
+| [`reviewer/findings.py`](reviewer/findings.py) | Checks `findings.json` against the diff and the earlier findings |
+| [`reviewer/report.py`](reviewer/report.py) | Posts the review as `arikkfir-reviewer`, through [`reviewer/github.py`](reviewer/github.py) |
+
+Octomaton reads `reviewer/pipelinerun.yaml` from this repository's default branch for every repository, and the scripts
+and the prompt run from the default branch too: `setup` extracts `reviewer/` from it, and `report` clones its own copy.
+So no pull request, here or elsewhere, changes its own review; a change here takes effect once merged.
+
 ## Development
 
 ```bash
-python3 -m unittest discover -s tests   # hook tests (format tests need gofmt)
+python3 -m unittest discover -s tests   # hook and reviewer tests (format tests need gofmt)
 sh scripts/build.sh                      # needs a commit: the bundle is built from HEAD
 python3 scripts/verify.py
 bash tests/test_setup.sh                 # end-to-end install test against a local HTTP server
