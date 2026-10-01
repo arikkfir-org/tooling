@@ -14,8 +14,8 @@ Your working directory holds:
     `reviewer` (you).
   - `pr`: the pull request, as GitHub's REST API returns it: its title, description and author.
   - `files`: the changed files, each with its `patch` and its `commentable` line ranges per side of the diff.
-  - `comments`: the pull request's conversation.
-  - `reviews`: every review so far. Each lists the `threads` it started, with every reply, whether the thread
+  - `comments`: the pull request's conversation, by organization members only.
+  - `reviews`: every review so far by organization members. Each lists the `threads` it started, with every reply, whether the thread
     `isResolved` and who resolved it (`resolvedBy`). Your own threads carry a `code`.
   - `codes`: every finding code used so far, resolved or not.
 - `pr.diff`: the change (`git diff <base>...<revision>`).
