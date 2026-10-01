@@ -58,7 +58,7 @@ the [design](https://github.com/arikkfir-org/docs/blob/main/hub/designs/pr-revie
 | [`reviewer/pipelinerun.yaml`](reviewer/pipelinerun.yaml) | The PipelineRun: tasks `setup`, `review` and `report` |
 | [`reviewer/prompt.md`](reviewer/prompt.md) | The reviewer's instructions, with the `findings.json` schema |
 | [`reviewer/opencode.json`](reviewer/opencode.json) | opencode's configuration: the model, no sharing, every tool allowed |
-| [`reviewer/state.py`](reviewer/state.py) | Writes `pr.json`: the pull request, its files, conversation, reviews and threads |
+| [`reviewer/state.py`](reviewer/state.py) | Writes `pr.json`: the pull request, its files, and the conversation, reviews and threads of people with write access only |
 | [`reviewer/findings.py`](reviewer/findings.py) | Checks `findings.json` against the diff and the earlier findings |
 | [`reviewer/report.py`](reviewer/report.py) | Posts the review as `arikkfir-reviewer`, through [`reviewer/github.py`](reviewer/github.py) |
 

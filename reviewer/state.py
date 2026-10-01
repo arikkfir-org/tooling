@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Writes pr.json, the pull request's state for the review task: the pull request, its files with the lines GitHub
-accepts comments on, its conversation, and every review with the threads it started. report.py reuses the helpers.
+accepts comments on, its conversation, and every review with the threads it started. Only the words of people who can
+push to the repository go in: anyone can comment on a public repository's pull request, and the model must never read
+an outsider's words. report.py reuses the helpers.
 
 Usage: state.py --repository OWNER/NAME --number N --revision SHA --base-ref BRANCH --reviewer LOGIN
                 --token-file FILE --output pr.json
@@ -16,6 +18,11 @@ import github
 MARKER = re.compile(rf"<!-- reviewer:({findings.CODE.pattern}) -->")
 HUNK = re.compile(r"@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
 HEADING = re.compile(r"\S+ \*\*[^*:]+: (.+)\*\*")
+# Author associations that are always trusted. GitHub reports the others (and hides private organization membership
+# from an installation token, reporting CONTRIBUTOR or NONE), so those authors' repository permission decides.
+MEMBERS = {"OWNER", "MEMBER"}
+# Repository permissions of the people who can push, and so already run anything they like through CI.
+WRITERS = {"admin", "maintain", "write"}
 
 THREADS_QUERY = """
 query Threads($owner: String!, $name: String!, $number: Int!, $after: String) {
@@ -27,7 +34,7 @@ query Threads($owner: String!, $name: String!, $number: Int!, $after: String) {
           id isResolved isOutdated path line startLine diffSide subjectType
           resolvedBy { login }
           comments(first: 100) {
-            nodes { author { login } body createdAt url pullRequestReview { databaseId } }
+            nodes { author { login } authorAssociation body createdAt url pullRequestReview { databaseId } }
           }
         }
       }
@@ -150,6 +157,38 @@ def group_threads(reviews, threads, reviewer):
     return grouped, codes
 
 
+class Trust:
+    """Decides whose words reach the model: authors with an OWNER or MEMBER association, or with write access to the
+    repository. Each login's permission is asked once; any failure to tell counts as an outsider."""
+
+    def __init__(self, client, owner, name):
+        self.client, self.base, self.permissions = client, f"/repos/{owner}/{name}", {}
+
+    def __call__(self, login, association):
+        if (association or "").upper() in MEMBERS:
+            return True
+        if not login:
+            return False
+        if login not in self.permissions:
+            try:
+                answer = self.client.rest("GET", f"{self.base}/collaborators/{login}/permission") or {}
+                self.permissions[login] = answer.get("permission")
+            except github.GitHubError:
+                self.permissions[login] = None
+        return self.permissions[login] in WRITERS
+
+
+def trusted_threads(threads, trusted):
+    """The threads with only their trusted comments, without the threads none of whose comments is trusted."""
+    kept = []
+    for thread in threads:
+        comments = [c for c in (thread.get("comments") or {}).get("nodes") or []
+                    if trusted(login(c.get("author")), c.get("authorAssociation"))]
+        if comments:
+            kept.append({**thread, "comments": {**thread["comments"], "nodes": comments}})
+    return kept
+
+
 def collect(client, repository, number, revision, base_ref, reviewer):
     """The pull request's state, in pr.json's shape."""
     owner, name = repository.split("/", 1)
@@ -157,8 +196,11 @@ def collect(client, repository, number, revision, base_ref, reviewer):
     files = client.paginate(f"{base}/pulls/{number}/files")
     for file in files:
         file["commentable"] = commentable_ranges(file.get("patch"))
-    reviews, codes = group_threads(client.paginate(f"{base}/pulls/{number}/reviews"),
-                                   fetch_threads(client, owner, name, number), reviewer)
+    trusted = Trust(client, owner, name)
+    reviews = [r for r in client.paginate(f"{base}/pulls/{number}/reviews")
+               if trusted(login(r.get("user")), r.get("author_association"))]
+    reviews, codes = group_threads(reviews, trusted_threads(fetch_threads(client, owner, name, number), trusted),
+                                   reviewer)
     return {
         "repository": repository,
         "number": number,
@@ -167,7 +209,8 @@ def collect(client, repository, number, revision, base_ref, reviewer):
         "reviewer": reviewer,
         "pr": client.rest("GET", f"{base}/pulls/{number}"),
         "files": files,
-        "comments": client.paginate(f"{base}/issues/{number}/comments"),
+        "comments": [c for c in client.paginate(f"{base}/issues/{number}/comments")
+                     if trusted(login(c.get("user")), c.get("author_association"))],
         "reviews": reviews,
         "codes": codes,
     }
