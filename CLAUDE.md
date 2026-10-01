@@ -24,6 +24,9 @@ request reviewer (`reviewer/`), and the organization pipelines every repository 
   reads only `findings.json` there, as data.
 - The findings schema lives in `reviewer/prompt.md`, `reviewer/findings.py` and the design (`hub/designs/pr-reviewer.md`
   in `arikkfir-org/docs`). Change them together.
+- `docs-site/`: the docs site's organization pipelines (`docs`, `docs-publish`). Their runs take `docs-site/` from the
+  default branch and treat the repository under test as data. `compose.py` is stdlib-only and covered by
+  `tests/test_docs_site.py`; `links.lua` by `tests/test_links.sh`.
 - The reviewer's PipelineRun references only Secrets `reviewer-deepseek-api-key` and `reviewer-github-pat`, plus the
   token workspace Octomaton binds. Never add another.
 
@@ -32,7 +35,8 @@ request reviewer (`reviewer/`), and the organization pipelines every repository 
 ```bash
 python3 -m unittest discover -s tests
 sh scripts/build.sh && python3 scripts/verify.py && bash tests/test_setup.sh
-shellcheck setup/setup.sh scripts/build.sh tests/test_setup.sh
+shellcheck setup/setup.sh scripts/build.sh tests/test_setup.sh tests/test_links.sh
+sh tests/test_links.sh   # needs pandoc
 ```
 
 `scripts/build.sh` archives `HEAD`: commit before building, or the bundle won't contain your change.
