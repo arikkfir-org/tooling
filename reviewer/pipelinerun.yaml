@@ -145,14 +145,23 @@ spec:
                 #!/bin/sh
                 set -eu
                 rm -rf repos .review pr.json pr.diff pr.log
-                # Public repositories: cloned anonymously, so no token reaches a .git/config.
+                # The hub's repositories are public: cloned anonymously.
                 for name in docs infra delivery octomaton tooling; do
                   git clone --quiet "https://github.com/arikkfir-org/${name}.git" "repos/${name}"
                 done
+                # The pull request's repository may be internal or private, so cloning it (unless it is one of the
+                # hub's) and fetching the pull request always take the read-only token: one path for every review,
+                # and no visibility check. git gets it as an HTTP header on its command line only, never in a
+                # .git/config, a URL or a credential helper, so nothing on the volume, which review's model reads,
+                # holds it.
+                token="$(cat "$(workspaces.github-token.path)/token")"
+                credentials="$(printf 'x-access-token:%s' "${token}" | base64 | tr -d '\n')"
+                auth="http.extraHeader=Authorization: Basic ${credentials}"
                 name="${REPOSITORY#*/}"
-                [ -d "repos/${name}" ] || git clone --quiet "https://github.com/${REPOSITORY}.git" "repos/${name}"
+                [ -d "repos/${name}" ] ||
+                  git -c "${auth}" clone --quiet "https://github.com/${REPOSITORY}.git" "repos/${name}"
                 cd "repos/${name}"
-                git fetch --quiet origin "+refs/pull/${NUMBER}/head"
+                git -c "${auth}" fetch --quiet origin "+refs/pull/${NUMBER}/head"
                 head="$(git rev-parse FETCH_HEAD)"
                 if [ "${head}" != "${REVISION}" ]; then
                   echo "Pull request #${NUMBER} is at ${head}, not ${REVISION}; request a new review." >&2

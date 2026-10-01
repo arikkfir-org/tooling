@@ -1,6 +1,9 @@
+import base64
 import contextlib
 import http.client
+import http.server
 import io
+import itertools
 import json
 import os
 import re
@@ -8,6 +11,8 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import textwrap
+import threading
 import unittest
 import urllib.error
 from unittest import mock
@@ -748,6 +753,168 @@ class PipelineRunTest(unittest.TestCase):
         self.assertEqual(len(names), text.count("secretKeyRef:"))
         self.assertEqual(sorted(names), ["reviewer-deepseek-api-key", "reviewer-github-pat"])
         self.assertIsNone(re.search(r"secretName:|secretRef:|^\s*secret:", text, re.MULTILINE))
+
+
+def step_script(step):
+    """The script of a step in reviewer/pipelinerun.yaml."""
+    with open(os.path.join(REVIEWER_DIR, "pipelinerun.yaml"), encoding="utf-8") as f:
+        text = f.read()
+    block = re.search(rf"^( +)- name: {step}\n(?:\1  .*\n)*?\1  script: \|\n((?:\1    .*\n|\n)+)", text, re.MULTILINE)
+    return textwrap.dedent(block.group(2))
+
+
+class FakeGitServer(http.server.ThreadingHTTPServer):
+    """github.com's git endpoints, served by git http-backend from bare repositories under root/<owner>/<name>.git.
+    The internal repositories need the token, which GitHub reads as HTTP Basic credentials x-access-token:<token>, and
+    a wrong one is refused everywhere. Records each request's repository and Authorization header."""
+
+    daemon_threads = True
+
+    def __init__(self, root, internal, authorization):
+        super().__init__(("127.0.0.1", 0), FakeGitHandler)
+        self.root, self.internal, self.authorization = root, internal, authorization
+        self.requests = []
+
+
+class FakeGitHandler(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        path, _, query = self.path.partition("?")
+        repository = path.lstrip("/").split(".git/")[0]
+        authorization = self.headers.get("Authorization")
+        self.server.requests.append((repository, authorization))
+        if authorization != self.server.authorization and (authorization or repository in self.server.internal):
+            self.send_response(401)
+            self.send_header("WWW-Authenticate", 'Basic realm="GitHub"')
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        body = self.rfile.read(int(self.headers.get("Content-Length", 0)))
+        env = {"PATH": os.environ["PATH"], "GIT_PROJECT_ROOT": self.server.root, "GIT_HTTP_EXPORT_ALL": "1",
+               "REQUEST_METHOD": self.command, "PATH_INFO": path, "QUERY_STRING": query,
+               "CONTENT_TYPE": self.headers.get("Content-Type", ""), "CONTENT_LENGTH": str(len(body))}
+        for header, variable in (("Content-Encoding", "HTTP_CONTENT_ENCODING"), ("Git-Protocol", "HTTP_GIT_PROTOCOL")):
+            if header in self.headers:
+                env[variable] = self.headers[header]
+        output = subprocess.run(["git", "http-backend"], input=body, env=env, capture_output=True, check=True).stdout
+        head, _, payload = output.partition(b"\r\n\r\n")
+        headers = dict(line.split(": ", 1) for line in head.decode().split("\r\n"))
+        self.send_response(int(headers.pop("Status", "200").split()[0]))
+        for name, value in headers.items():
+            self.send_header(name, value)
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
+
+    do_POST = do_GET
+
+    def log_message(self, *args):
+        pass
+
+
+class CloneStepTest(unittest.TestCase):
+    """Runs setup's clone step against a local github.com, where the hub's five repositories are public and fin is
+    internal."""
+
+    HUB = ["docs", "infra", "delivery", "octomaton", "tooling"]
+    TOKEN = "test-installation-token-" + "0" * 40  # long enough for base64 to wrap the credentials
+
+    @classmethod
+    def setUpClass(cls):
+        tmp = tempfile.mkdtemp()
+        cls.addClassCleanup(shutil.rmtree, tmp)
+        cls.env = {"PATH": os.environ["PATH"], "HOME": tmp, "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull,
+                   "GIT_TERMINAL_PROMPT": "0"}
+        cls.heads = {f"arikkfir-org/{name}": cls.repository(tmp, name) for name in cls.HUB + ["fin"]}
+        cls.token_dir = os.path.join(tmp, "github-token")
+        os.makedirs(cls.token_dir)
+        with open(os.path.join(cls.token_dir, "token"), "w", encoding="utf-8") as f:
+            f.write(cls.TOKEN + "\n")
+        cls.credentials = base64.b64encode(f"x-access-token:{cls.TOKEN}".encode()).decode()
+        cls.server = FakeGitServer(os.path.join(tmp, "github"), {"arikkfir-org/fin"}, f"Basic {cls.credentials}")
+        threading.Thread(target=cls.server.serve_forever, daemon=True).start()
+        cls.addClassCleanup(cls.server.server_close)
+        cls.addClassCleanup(cls.server.shutdown)
+
+    @classmethod
+    def git(cls, directory, *args):
+        return subprocess.run(["git", "-C", directory, "-c", "user.name=Test", "-c", "user.email=test@example.com",
+                               *args], env=cls.env, capture_output=True, text=True, check=True).stdout.strip()
+
+    @classmethod
+    def repository(cls, tmp, name):
+        """Bare repository arikkfir-org/<name>: a commit on main, then pull request #7 on top of it. Returns the pull
+        request's head commit."""
+        work = os.path.join(tmp, "work", name)
+        os.makedirs(os.path.join(work, "reviewer"))
+        with open(os.path.join(work, "reviewer", "prompt.md"), "w", encoding="utf-8") as f:
+            f.write("Review the pull request.\n")
+        cls.git(work, "init", "--quiet", "--initial-branch=main")
+        cls.git(work, "add", "--all")
+        cls.git(work, "commit", "--quiet", "--message=Start")
+        cls.git(work, "clone", "--quiet", "--bare", ".", os.path.join(tmp, "github", "arikkfir-org", f"{name}.git"))
+        with open(os.path.join(work, "change.txt"), "w", encoding="utf-8") as f:
+            f.write("the change\n")
+        cls.git(work, "add", "--all")
+        cls.git(work, "commit", "--quiet", "--message=Change")
+        cls.git(work, "push", "--quiet", os.path.join(tmp, "github", "arikkfir-org", f"{name}.git"),
+                "HEAD:refs/pull/7/head")
+        return cls.git(work, "rev-parse", "HEAD")
+
+    def setUp(self):
+        self.server.requests.clear()
+        self.workspace = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.workspace)
+
+    def clone(self, repository):
+        """Runs the clone step as Tekton would, in the workspace, with github.com pointing at the local server. Returns
+        its log."""
+        script = step_script("clone").replace("$(workspaces.github-token.path)", self.token_dir)
+        env = {**self.env, "REPOSITORY": repository, "NUMBER": "7", "REVISION": self.heads[repository],
+               "BASE_REF": "main", "REVIEWER": REVIEWER, "GIT_CONFIG_COUNT": "1",
+               "GIT_CONFIG_KEY_0": f"url.http://127.0.0.1:{self.server.server_port}/.insteadOf",
+               "GIT_CONFIG_VALUE_0": "https://github.com/"}
+        result = subprocess.run(["sh", "-c", script], cwd=self.workspace, env=env, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return result.stdout + result.stderr
+
+    def authorizations(self):
+        """Each repository's Authorization headers, in the order of its requests, repeats collapsed."""
+        headers = {}
+        for repository, authorization in self.server.requests:
+            headers.setdefault(repository, []).append(authorization)
+        return {repository: [key for key, _ in itertools.groupby(values)] for repository, values in headers.items()}
+
+    def assert_reviewed(self, name):
+        repository = os.path.join(self.workspace, "repos", name)
+        self.assertEqual(self.git(repository, "rev-parse", "HEAD"), self.heads[f"arikkfir-org/{name}"])
+        with open(os.path.join(self.workspace, "pr.diff"), encoding="utf-8") as f:
+            self.assertIn("+the change", f.read())
+        with open(os.path.join(self.workspace, "pr.log"), encoding="utf-8") as f:
+            self.assertIn("change.txt", f.read())
+        self.assertTrue(os.path.isfile(os.path.join(self.workspace, ".review", "prompt.md")))
+
+    def assert_no_token(self, log):
+        for secret in (self.TOKEN, self.credentials):
+            self.assertNotIn(secret, log)
+            for directory, _, files in os.walk(self.workspace):
+                for name in files:
+                    with open(os.path.join(directory, name), "rb") as f:
+                        self.assertNotIn(secret.encode(), f.read(), os.path.join(directory, name))
+
+    def test_an_internal_repository(self):
+        log = self.clone("arikkfir-org/fin")
+        self.assertEqual(self.authorizations(), {**{f"arikkfir-org/{name}": [None] for name in self.HUB},
+                                                 "arikkfir-org/fin": [self.server.authorization]})
+        self.assert_reviewed("fin")
+        self.assert_no_token(log)
+
+    def test_a_hub_repository(self):
+        log = self.clone("arikkfir-org/infra")
+        # Cloned anonymously with the hub's other repositories, then the pull request fetched with the token.
+        self.assertEqual(self.authorizations(), {**{f"arikkfir-org/{name}": [None] for name in self.HUB},
+                                                 "arikkfir-org/infra": [None, self.server.authorization]})
+        self.assert_reviewed("infra")
+        self.assert_no_token(log)
 
 
 if __name__ == "__main__":
