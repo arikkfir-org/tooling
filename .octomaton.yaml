@@ -45,3 +45,32 @@ organization:
         permissions: {contents: read, pull_requests: read}
       secrets: [reviewer-deepseek-api-key, reviewer-github-pat]
       timeout: 1h
+    # The docs site (arikkfir-org/docs, hub/designs/docs-site-composition.md): every repository's docs (the docs
+    # repository's whole tree, any other's docs/) are checked against the other repositories' published layers on pull
+    # requests and in the merge queue, and published to the repository's own layer on every push to main.
+    - name: docs
+      displayName: Docs
+      pipelineRun: docs-site/check.yaml
+      on:
+        pull_request:
+          branches: [main]
+        merge_group: {}
+      params:
+        repository: "{{ .Repository.FullName }}"
+        revision: "{{ .Revision }}"
+      githubToken:
+        workspace: github-token
+    - name: docs-publish
+      pipelineRun: docs-site/publish.yaml
+      on:
+        push:
+          branches: [main]
+      params:
+        repository: "{{ .Repository.FullName }}"
+        revision: "{{ .Revision }}"
+      githubToken:
+        workspace: github-token
+      # One publication at a time; a newer push replaces any waiting one.
+      concurrency:
+        group: docs-publish
+        policy: latest

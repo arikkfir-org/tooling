@@ -69,6 +69,22 @@ repository has it. Octomaton reads `reviewer/pipelinerun.yaml` from this reposit
 and the prompt run from the default branch too: `setup` extracts `reviewer/` from it, and `report` clones its own copy.
 So no pull request, here or elsewhere, changes its own review; a change here takes effect once merged.
 
+## Docs site
+
+`docs.dev.kfirs.com` is one URL space composed from every repository: the `docs` repository's whole tree and every other
+repository's `docs/` directory, each published to its own layer of `gs://arikkfir-docs/.layers/<repository>/`. Details
+are in the [design](https://github.com/arikkfir-org/docs/blob/main/hub/designs/docs-site-composition.md).
+
+| File | Role |
+| --- | --- |
+| [`docs-site/check.yaml`](docs-site/check.yaml) | Pipeline `docs` (check `Docs`), as `docs-reader`: composes the change's docs with the other layers and checks them |
+| [`docs-site/publish.yaml`](docs-site/publish.yaml) | Pipeline `docs-publish`, as `docs-publisher` (`main` only): mirrors the repository's layer, then runs the same checks |
+| [`docs-site/compose.py`](docs-site/compose.py) | Maps the repository's files to site paths, reports reserved names and collisions, and writes the composed site |
+| [`docs-site/links.lua`](docs-site/links.lua) | Checks that relative links resolve in the composed site (`pandoc lua`) |
+
+Both are organization pipelines; their runs take `docs-site/` from this repository's default branch, never from the
+change under test.
+
 ## Organization pipelines
 
 This is the hub's organization repository: Octomaton's `OCTOMATON_ORGANIZATION_REPOSITORY` names it. The pipelines
@@ -79,6 +95,8 @@ Their runs belong to the repository they run for: its namespace, checks and toke
 | Pipeline | Check | Runs when |
 | --- | --- | --- |
 | `review` | `AI Review` | a review is requested from `arikkfir-reviewer` |
+| `docs` | `Docs` | pull requests and merge groups |
+| `docs-publish` | `docs-publish` | pushes to `main` |
 
 ## Development
 
@@ -87,5 +105,6 @@ python3 -m unittest discover -s tests   # hook and reviewer tests (format tests 
 sh scripts/build.sh                      # needs a commit: the bundle is built from HEAD
 python3 scripts/verify.py
 bash tests/test_setup.sh                 # end-to-end install test against a local HTTP server
+sh tests/test_links.sh                   # docs-site/links.lua against a composed site (needs pandoc)
 shellcheck setup/setup.sh scripts/build.sh tests/test_setup.sh
 ```

@@ -70,7 +70,7 @@ spec:
               script: |
                 #!/bin/sh
                 set -eu
-                shellcheck setup/setup.sh scripts/build.sh tests/test_setup.sh
+                shellcheck setup/setup.sh scripts/build.sh tests/test_setup.sh tests/test_links.sh
             - name: test
               image: gcr.io/google.com/cloudsdktool/google-cloud-cli:587.0.0-slim
               script: |
@@ -79,6 +79,12 @@ spec:
                 python3 -m unittest discover -s tests -v
                 python3 scripts/verify.py dist/content
                 bash tests/test_setup.sh
+            - name: links
+              image: docker.io/pandoc/core:3.11.0
+              script: |
+                #!/bin/sh
+                set -eu
+                sh tests/test_links.sh
             - name: scan
               image: zricethezav/gitleaks:v8.30.1
               script: |

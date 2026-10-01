@@ -1,0 +1,148 @@
+# The docs site's publication (https://github.com/arikkfir-org/docs/blob/main/hub/designs/docs-site-composition.md).
+# Octomaton runs it as organization pipeline "docs-publish" on every push to a repository's main, reading this file at
+# tooling's default branch. It binds github-token, a read-only installation token for the repository. As
+# docs-publisher, which only main may use and which writes only this repository's layer, it mirrors the repository's
+# docs to gs://arikkfir-docs/.layers/<repository>/, then runs the Docs check's steps, so a collision with a layer
+# published meanwhile fails it.
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  generateName: docs-publish-
+spec:
+  # Octomaton sets every value; the empty ones satisfy Tekton's schema, which requires one.
+  params:
+    - name: repository
+      value: ""
+    - name: revision
+      value: ""
+  timeouts:
+    pipeline: 15m
+  taskRunTemplate:
+    serviceAccountName: docs-publisher
+  # Reserved once for all of the task's steps (step-level requests would add up as if the steps ran at once).
+  taskRunSpecs:
+    - pipelineTaskName: publish
+      computeResources:
+        requests:
+          cpu: 250m
+          memory: 256Mi
+        limits:
+          memory: 512Mi
+  workspaces:
+    - name: work
+      emptyDir: {}
+  pipelineSpec:
+    params:
+      - name: repository
+        type: string
+      - name: revision
+        type: string
+      - name: bucket
+        type: string
+        default: arikkfir-docs
+    workspaces:
+      - name: work
+      - name: github-token
+    tasks:
+      - name: publish
+        workspaces:
+          - name: work
+            workspace: work
+          - name: github-token
+            workspace: github-token
+        params:
+          - name: repository
+            value: $(params.repository)
+          - name: revision
+            value: $(params.revision)
+          - name: bucket
+            value: $(params.bucket)
+        taskSpec:
+          params:
+            - name: repository
+              type: string
+            - name: revision
+              type: string
+            - name: bucket
+              type: string
+          workspaces:
+            - name: work
+            - name: github-token
+          stepTemplate:
+            workingDir: $(workspaces.work.path)
+            env:
+              - name: REPOSITORY
+                value: $(params.repository)
+              - name: REVISION
+                value: $(params.revision)
+              - name: BUCKET
+                value: $(params.bucket)
+          steps:
+            - name: clone
+              image: docker.io/alpine/git:2.54.0
+              script: |
+                #!/bin/sh
+                set -eu
+                # The scripts come from tooling's default branch, never from the change under test.
+                git clone --quiet --depth=1 https://github.com/arikkfir-org/tooling.git tooling
+                mkdir .docs-site
+                git -C tooling archive HEAD:docs-site | tar -x -C .docs-site
+                rm -rf tooling
+                # The repository may be internal or private, so it is fetched with the read-only token, which git gets
+                # as an HTTP header on its command line only, never in a .git/config, a URL or a credential helper.
+                token="$(cat "$(workspaces.github-token.path)/token")"
+                credentials="$(printf 'x-access-token:%s' "${token}" | base64 | tr -d '\n')"
+                git init --quiet repo
+                git -C repo -c "http.extraHeader=Authorization: Basic ${credentials}" \
+                  fetch --quiet --depth=1 "https://github.com/${REPOSITORY}.git" "${REVISION}"
+                git -C repo -c advice.detachedHead=false checkout --quiet FETCH_HEAD
+                git -C repo ls-files -z > files.txt
+                : > problems.txt
+            - name: mirror
+              image: gcr.io/google.com/cloudsdktool/google-cloud-cli:587.0.0-slim
+              script: |
+                #!/bin/sh
+                set -eu
+                name="${REPOSITORY#*/}"
+                if [ "${name}" = docs ]; then source=repo; else source=repo/docs; fi
+                # A repository without docs/ empties its layer.
+                mkdir -p "${source}"
+                # Uploads what changed and deletes what is gone, in this repository's layer only. Hidden paths are
+                # never published.
+                gcloud storage rsync "${source}" "gs://${BUCKET}/.layers/${name}" --recursive \
+                  --delete-unmatched-destination-objects --checksums-only --exclude='(.*/)?\.'
+            - name: layers
+              image: gcr.io/google.com/cloudsdktool/google-cloud-cli:587.0.0-slim
+              script: |
+                #!/bin/sh
+                set -eu
+                # The name of every published file, in every layer.
+                if ! gcloud storage ls "gs://${BUCKET}/.layers/**" > layers.txt 2> layers.err; then
+                  grep -q 'matched no objects' layers.err || { cat layers.err >&2; exit 1; }
+                  : > layers.txt
+                fi
+                echo "$(wc -l < layers.txt) file(s) published in all layers"
+            - name: compose
+              image: gcr.io/google.com/cloudsdktool/google-cloud-cli:587.0.0-slim
+              script: |
+                #!/bin/sh
+                set -eu
+                python3 .docs-site/compose.py --repository "${REPOSITORY#*/}" --checkout repo --files files.txt \
+                  --layers layers.txt --site site --links links.txt --problems problems.txt
+            - name: links
+              image: docker.io/pandoc/core:3.11.0
+              workingDir: $(workspaces.work.path)/site
+              script: |
+                #!/bin/sh
+                set -eu
+                pandoc lua ../.docs-site/links.lua ../links.txt 2>> ../problems.txt || true
+            - name: verdict
+              image: docker.io/alpine/git:2.54.0
+              script: |
+                #!/bin/sh
+                set -eu
+                if [ -s problems.txt ]; then
+                  cat problems.txt >&2
+                  exit 1
+                fi
+                echo "No problems."
