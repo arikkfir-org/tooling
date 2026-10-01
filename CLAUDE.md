@@ -1,7 +1,8 @@
 # tooling
 
-Org-wide developer tooling: the Claude Code web bundle (`claude/`) with its installer (`setup/setup.sh`), and the pull
-request reviewer (`reviewer/`).
+Org-wide developer tooling: the Claude Code web bundle (`claude/`) with its installer (`setup/setup.sh`), the pull
+request reviewer (`reviewer/`), and the organization pipelines every repository runs (`organization.pipelines` in
+`.octomaton.yaml`).
 
 ## Rules
 
@@ -14,6 +15,8 @@ request reviewer (`reviewer/`).
   `@BUNDLE_SHA256@` placeholder; `scripts/build.sh` pins it.
 - Bundles are content-addressed and immutable. Upload bundles before `setup.sh`.
 - CI is Octomaton + Tekton (`.octomaton.yaml`, `.tekton/bundle.yaml`), not GitHub Actions.
+- This is the organization repository: `organization.pipelines` in `.octomaton.yaml` run in every repository, read from
+  `main`. A change there applies org-wide; say so in the pull request.
 - `reviewer/`: Octomaton runs `reviewer/pipelinerun.yaml` from the default branch for every repository. Its Python is
   stdlib-only; cover every rule and review action in `tests/test_reviewer.py`.
 - `reviewer/report.py` holds `arikkfir-reviewer`'s token: it never runs or trusts anything from the shared volume, and

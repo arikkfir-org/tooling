@@ -24,3 +24,26 @@ pipelines:
     concurrency:
       group: publish
       policy: latest
+# This is the hub's organization repository (Octomaton's OCTOMATON_ORGANIZATION_REPOSITORY): every repository of
+# arikkfir-org runs these pipelines, read from this file at main, and none can replace them.
+organization:
+  pipelines:
+    # The pull request reviewer (arikkfir-org/docs, hub/designs/pr-reviewer.md): requesting a review from
+    # arikkfir-reviewer runs reviewer/pipelinerun.yaml, read at this repository's main.
+    - name: review
+      displayName: AI Review
+      pipelineRun: reviewer/pipelinerun.yaml
+      on:
+        review_request:
+          reviewers: [arikkfir-reviewer]
+      params:
+        repository: "{{ .Repository.FullName }}"
+        number: "{{ .PullRequest.Number }}"
+        revision: "{{ .Revision }}"
+        base-ref: "{{ .PullRequest.BaseRef }}"
+        reviewer: "{{ .ReviewRequest.Reviewer }}"
+      githubToken:
+        workspace: github-token
+        permissions: {contents: read, pull_requests: read}
+      secrets: [reviewer-deepseek-api-key, reviewer-github-pat]
+      timeout: 1h

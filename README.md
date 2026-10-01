@@ -1,7 +1,7 @@
 # tooling
 
-Developer tooling for the `arikkfir-org` hub: a Claude Code bundle for Claude Code on the web, and the pull request
-reviewer.
+Developer tooling for the `arikkfir-org` hub: a Claude Code bundle for Claude Code on the web, the pull request
+reviewer, and the organization pipelines every repository runs.
 
 ## Claude Code web bundle
 
@@ -62,10 +62,21 @@ the [design](https://github.com/arikkfir-org/docs/blob/main/hub/designs/pr-revie
 | [`reviewer/findings.py`](reviewer/findings.py) | Checks `findings.json` against the diff and the earlier findings |
 | [`reviewer/report.py`](reviewer/report.py) | Posts the review as `arikkfir-reviewer`, through [`reviewer/github.py`](reviewer/github.py) |
 
-Pipeline `review` is an organization pipeline, declared once in `arikkfir-org/.github`'s `.octomaton.yaml`, so every
+Pipeline `review` is an organization pipeline, declared once in this repository's `.octomaton.yaml` (below), so every
 repository has it. Octomaton reads `reviewer/pipelinerun.yaml` from this repository's default branch, and the scripts
 and the prompt run from the default branch too: `setup` extracts `reviewer/` from it, and `report` clones its own copy.
 So no pull request, here or elsewhere, changes its own review; a change here takes effect once merged.
+
+## Organization pipelines
+
+This is the hub's organization repository: Octomaton's `OCTOMATON_ORGANIZATION_REPOSITORY` names it. The pipelines
+under `organization.pipelines` in [`.octomaton.yaml`](.octomaton.yaml) run in every repository of `arikkfir-org`, this
+one included. Octomaton reads them from `main`, so a pull request can't change them, and no repository can replace one.
+Their runs belong to the repository they run for: its namespace, checks and token.
+
+| Pipeline | Check | Runs when |
+| --- | --- | --- |
+| `review` | `AI Review` | a review is requested from `arikkfir-reviewer` |
 
 ## Development
 
