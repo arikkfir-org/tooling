@@ -1,7 +1,8 @@
 -- Checks the relative links of the Markdown and HTML files listed in a file, one site path per line, run from the
 -- composed site (compose.py). A link resolves when it points at a file of the site outside hidden paths: X.md, the page
--- the site renders from it (X.md.html), X.html when only X.md exists (the site redirects it), or any other file.
--- External URLs and in-page anchors are not checked, and neither are fragments.
+-- the site renders from it (X.md.html), X.html when only X.md exists (the site redirects it), or any other file. A `..`
+-- above the site root stays at the root, as browsers resolve it. External URLs and in-page anchors are not checked, and
+-- neither are fragments.
 --
 -- Usage: pandoc lua links.lua LIST
 
@@ -83,10 +84,7 @@ local function resolve(file, link)
   end
   for segment in start:gmatch('[^/]+') do
     if segment == '..' then
-      if #segments == 0 then
-        return nil, 'leaves the site'
-      end
-      table.remove(segments)
+      table.remove(segments) -- a no-op at the root
     elseif segment ~= '.' then
       table.insert(segments, segment)
     end

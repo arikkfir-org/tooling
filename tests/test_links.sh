@@ -21,6 +21,8 @@ cat > good.md <<'MD'
 [html](hub/overview.html), [root](/dir1/doc1.md), [up](dir1/../hub/reference.md), [anchor](#good),
 [external](https://example.com/x.md), [protocol](//cdn.example.com/x.md), [mail](mailto:a@example.com),
 ![image](img/logo.png) <a href="dir1/doc1.md.html">raw</a>
+
+A repository's docs/x.md is at the site root, where ../ stays at the root: [reference](../hub/reference.md).
 MD
 cat > dir1/nested.md <<'MD'
 # Nested
@@ -37,7 +39,7 @@ printf '<a href="missing.html">x</a> <img src="img/logo.png">\n' > page.html
 
 printf 'good.md\ndir1/nested.md\n' > good.txt
 out="$(pandoc lua "$lua" good.txt 2>&1)" || { echo "FAIL good links: $out"; exit 1; }
-[ "$out" = "Checked 14 link(s): 0 problem(s)" ] || { echo "FAIL good links: $out"; exit 1; }
+[ "$out" = "Checked 15 link(s): 0 problem(s)" ] || { echo "FAIL good links: $out"; exit 1; }
 
 printf 'bad.md\npage.html\n' > bad.txt
 if out="$(pandoc lua "$lua" bad.txt 2>&1)"; then
@@ -50,7 +52,7 @@ for want in \
   "bad.md: link overview.md.html does not exist" \
   "bad.md: link hub/reference.md.md.html does not exist" \
   "bad.md: link hub/ is a directory; the site has no index pages" \
-  "bad.md: link ../outside.md leaves the site" \
+  "bad.md: link ../outside.md does not exist" \
   "bad.md: link .hidden/x.md points into a hidden path, which is not published" \
   "page.html: link missing.html does not exist" \
   "Checked 9 link(s): 8 problem(s)"; do
