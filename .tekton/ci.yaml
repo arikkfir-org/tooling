@@ -1,5 +1,5 @@
 # Builds and verifies the Claude Code bundle on pull requests and in the merge queue ("ci" in .octomaton.yaml). It runs
-# as Tekton's default ServiceAccount, which has no Google Cloud role; .tekton/publish.yaml uploads from main.
+# as Tekton's default ServiceAccount and needs no Google Cloud access: only .tekton/publish.yaml, on main, uploads.
 apiVersion: tekton.dev/v1
 kind: PipelineRun
 metadata:
