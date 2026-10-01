@@ -1,0 +1,88 @@
+# Builds and verifies the Claude Code bundle on pull requests and in the merge queue ("ci" in .octomaton.yaml). It runs
+# as Tekton's default ServiceAccount, which has no Google Cloud role; .tekton/publish.yaml uploads from main.
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  generateName: tooling-ci-
+spec:
+  timeouts:
+    pipeline: 20m
+  taskRunTemplate:
+    serviceAccountName: pipeline
+  # Reserved once for all of the task's steps (step-level requests would add up as if the steps ran at once).
+  taskRunSpecs:
+    - pipelineTaskName: bundle
+      computeResources:
+        requests:
+          cpu: 500m
+          memory: 512Mi
+        limits:
+          memory: 1Gi
+  workspaces:
+    - name: source
+      emptyDir: {}
+  pipelineSpec:
+    params:
+      - name: repo-url
+        type: string
+      - name: revision
+        type: string
+    workspaces:
+      - name: source
+    tasks:
+      - name: bundle
+        workspaces:
+          - name: source
+            workspace: source
+        params:
+          - name: repo-url
+            value: $(params.repo-url)
+          - name: revision
+            value: $(params.revision)
+        taskSpec:
+          params:
+            - name: repo-url
+              type: string
+            - name: revision
+              type: string
+          workspaces:
+            - name: source
+          stepTemplate:
+            workingDir: $(workspaces.source.path)
+            env:
+              - name: REPO_URL
+                value: $(params.repo-url)
+              - name: REVISION
+                value: $(params.revision)
+          steps:
+            - name: build
+              image: alpine/git:v2.54.0
+              script: |
+                #!/bin/sh
+                set -eu
+                git init --quiet .
+                git remote add origin "$REPO_URL"
+                git fetch --quiet --depth=1 origin "$REVISION"
+                git checkout --quiet FETCH_HEAD
+                sh scripts/build.sh
+            - name: lint
+              image: koalaman/shellcheck-alpine:v0.11.0
+              script: |
+                #!/bin/sh
+                set -eu
+                shellcheck setup/setup.sh scripts/build.sh tests/test_setup.sh
+            - name: test
+              image: gcr.io/google.com/cloudsdktool/google-cloud-cli:587.0.0-slim
+              script: |
+                #!/usr/bin/env bash
+                set -euo pipefail
+                python3 -m unittest discover -s tests -v
+                python3 scripts/verify.py dist/content
+                bash tests/test_setup.sh
+            - name: scan
+              image: zricethezav/gitleaks:v8.30.1
+              script: |
+                #!/bin/sh
+                set -eu
+                gitleaks dir dist/content --no-banner --redact --verbose
+                gitleaks dir . --no-banner --redact
