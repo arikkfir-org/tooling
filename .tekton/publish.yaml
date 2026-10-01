@@ -1,15 +1,16 @@
-# Builds and verifies the Claude Code bundle; when publish is "true", uploads it and the setup script to the public
-# arikkfir-claude bucket. Octomaton runs it as "ci" (pull requests, merge queue) and "publish" (main); see
-# .octomaton.yaml.
+# Publishes the Claude Code bundle on every push to main ("publish" in .octomaton.yaml): builds it, verifies and scans
+# what it uploads, then uploads it and the setup script to the public arikkfir-claude bucket. The merge queue already
+# ran .tekton/ci.yaml on this exact commit. It runs as ci-tooling-publish, which only main may use
+# (octomaton.dev/branches).
 apiVersion: tekton.dev/v1
 kind: PipelineRun
 metadata:
-  generateName: tooling-bundle-
+  generateName: tooling-publish-
 spec:
   timeouts:
     pipeline: 20m
   taskRunTemplate:
-    serviceAccountName: pipeline
+    serviceAccountName: ci-tooling-publish
   # Reserved once for all of the task's steps (step-level requests would add up as if the steps ran at once).
   taskRunSpecs:
     - pipelineTaskName: bundle
@@ -28,9 +29,6 @@ spec:
         type: string
       - name: revision
         type: string
-      - name: publish
-        type: string
-        default: "false"
       - name: bucket
         type: string
         default: arikkfir-claude
@@ -46,8 +44,6 @@ spec:
             value: $(params.repo-url)
           - name: revision
             value: $(params.revision)
-          - name: publish
-            value: $(params.publish)
           - name: bucket
             value: $(params.bucket)
         taskSpec:
@@ -55,8 +51,6 @@ spec:
             - name: repo-url
               type: string
             - name: revision
-              type: string
-            - name: publish
               type: string
             - name: bucket
               type: string
@@ -69,8 +63,6 @@ spec:
                 value: $(params.repo-url)
               - name: REVISION
                 value: $(params.revision)
-              - name: PUBLISH
-                value: $(params.publish)
               - name: BUCKET
                 value: $(params.bucket)
           steps:
@@ -84,36 +76,23 @@ spec:
                 git fetch --quiet --depth=1 origin "$REVISION"
                 git checkout --quiet FETCH_HEAD
                 sh scripts/build.sh
-            - name: lint
-              image: koalaman/shellcheck-alpine:v0.11.0
-              script: |
-                #!/bin/sh
-                set -eu
-                shellcheck setup/setup.sh scripts/build.sh tests/test_setup.sh
-            - name: test
+            - name: verify
               image: gcr.io/google.com/cloudsdktool/google-cloud-cli:587.0.0-slim
               script: |
                 #!/usr/bin/env bash
                 set -euo pipefail
-                python3 -m unittest discover -s tests -v
                 python3 scripts/verify.py dist/content
-                bash tests/test_setup.sh
             - name: scan
               image: zricethezav/gitleaks:v8.30.1
               script: |
                 #!/bin/sh
                 set -eu
                 gitleaks dir dist/content --no-banner --redact --verbose
-                gitleaks dir . --no-banner --redact
-            - name: publish
+            - name: upload
               image: gcr.io/google.com/cloudsdktool/google-cloud-cli:587.0.0-slim
               script: |
                 #!/usr/bin/env bash
                 set -euo pipefail
-                if [[ "$PUBLISH" != "true" ]]; then
-                  echo "Verification only; nothing published."
-                  exit 0
-                fi
                 # Bundles are content-addressed and immutable; upload them before the setup script that points at them.
                 gcloud storage rsync dist/bundles "gs://${BUCKET}/bundles" --recursive --checksums-only \
                   --cache-control="public, max-age=31536000, immutable"

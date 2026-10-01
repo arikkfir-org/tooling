@@ -2,7 +2,7 @@ apiVersion: octomaton.dev/v1
 pipelines:
   - name: ci
     displayName: Continuous Integration
-    pipelineRun: .tekton/bundle.yaml
+    pipelineRun: .tekton/ci.yaml
     on:
       pull_request:
         branches: [main]
@@ -10,16 +10,14 @@ pipelines:
     params:
       repo-url: "{{ .Repository.CloneURL }}"
       revision: "{{ .Revision }}"
-      publish: "false"
   - name: publish
-    pipelineRun: .tekton/bundle.yaml
+    pipelineRun: .tekton/publish.yaml
     on:
       push:
         branches: [main]
     params:
       repo-url: "{{ .Repository.CloneURL }}"
       revision: "{{ .Revision }}"
-      publish: "true"
     # One publication at a time; a newer push replaces any waiting one.
     concurrency:
       group: publish

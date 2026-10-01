@@ -14,7 +14,8 @@ request reviewer (`reviewer/`), and the organization pipelines every repository 
 - `setup/setup.sh` must stay idempotent and fail-soft (warn and exit 0 unless `ARIKKFIR_CLAUDE_STRICT=1`). Keep the
   `@BUNDLE_SHA256@` placeholder; `scripts/build.sh` pins it.
 - Bundles are content-addressed and immutable. Upload bundles before `setup.sh`.
-- CI is Octomaton + Tekton (`.octomaton.yaml`, `.tekton/bundle.yaml`), not GitHub Actions.
+- CI is Octomaton + Tekton (`.octomaton.yaml`, `.tekton/ci.yaml`, `.tekton/publish.yaml`), not GitHub Actions. Only
+  `publish` may name a ServiceAccount with Google Cloud roles (`ci-tooling-publish`, `main` only).
 - This is the organization repository: `organization.pipelines` in `.octomaton.yaml` run in every repository, read from
   `main`. A change there applies org-wide; say so in the pull request.
 - `reviewer/`: Octomaton runs `reviewer/pipelinerun.yaml` from the default branch for every repository. Its Python is
