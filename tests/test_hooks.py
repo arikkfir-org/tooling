@@ -24,6 +24,49 @@ def git(directory, *args):
     subprocess.run(["git", "-C", directory, *args], check=True, capture_output=True)
 
 
+class AddRepoTest(unittest.TestCase):
+    SCRIPT = os.path.join(ROOT, "claude", "hooks", "add_repo.py")
+
+    def decide(self, tool, owner, repo="docs"):
+        payload = {"tool_name": tool, "tool_input": {"owner": owner, "repo": repo}, "cwd": ROOT}
+        output = run_hook(self.SCRIPT, payload)
+        return output["hookSpecificOutput"]["permissionDecision"] if output else "pass"
+
+    def test_public_repositories_are_allowed(self):
+        for tool in ("mcp__claude-code-remote__add_repo", "mcp__Claude_Code_Remote__register_repo_root"):
+            for owner, repo in [
+                ("arikkfir-org", "docs"),
+                ("Arikkfir-Org", "Docs"),
+                ("arikkfir-org", ".github"),
+                ("arikkfir-org", "delivery"),
+                ("arikkfir-org", "infra"),
+                ("arikkfir-org", "octomaton"),
+                ("arikkfir-org", "tooling"),
+            ]:
+                with self.subTest(tool=tool, owner=owner, repo=repo):
+                    self.assertEqual(self.decide(tool, owner, repo), "allow")
+
+    def test_others_pass_through(self):
+        for tool, owner, repo in [
+            ("mcp__claude-code-remote__add_repo", "arikkfir-org", "fin"),
+            ("mcp__Claude_Code_Remote__register_repo_root", "arikkfir-org", "FIN"),
+            ("mcp__claude-code-remote__add_repo", "arikkfir-org", "a-new-repository"),
+            ("mcp__claude-code-remote__add_repo", "arikkfir-org", None),
+            ("mcp__claude-code-remote__add_repo", "weesp-ai", "docs"),
+            ("mcp__claude-code-remote__add_repo", "arikkfir", "docs"),
+            ("mcp__claude-code-remote__add_repo", "arikkfir-org-fork", "docs"),
+            ("mcp__claude-code-remote__add_repo", None, "docs"),
+            ("mcp__github__create_repository", "arikkfir-org", "docs"),
+            ("mcp__someone-else__add_repo", "arikkfir-org", "docs"),
+        ]:
+            with self.subTest(tool=tool, owner=owner, repo=repo):
+                self.assertEqual(self.decide(tool, owner, repo), "pass")
+
+    def test_garbage_input_is_ignored(self):
+        result = subprocess.run([sys.executable, self.SCRIPT], input="[]", capture_output=True, text=True, check=True)
+        self.assertEqual(result.stdout, "")
+
+
 class GuardTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
