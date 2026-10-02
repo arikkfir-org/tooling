@@ -140,10 +140,13 @@ class GitHooksTest(unittest.TestCase):
         self.tmp = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.tmp)
         self.workspace = os.path.join(self.tmp, "workspace")
-        for name, hooks, hooks_path in (
-            ("with-hooks", True, None),
-            ("without-hooks", False, None),
-            ("own-hooks-path", True, "custom"),
+        for name, hooks, hooks_path, origin in (
+            ("with-hooks", True, None, "https://github.com/arikkfir-org/with-hooks"),
+            ("without-hooks", False, None, "https://github.com/arikkfir-org/without-hooks"),
+            ("own-hooks-path", True, "custom", "https://github.com/arikkfir-org/own-hooks-path"),
+            ("third-party", True, None, "https://github.com/someone-else/tool"),
+            ("other-host", True, None, "https://gitlab.com/arikkfir-org/tool"),
+            ("no-origin", True, None, None),
         ):
             path = os.path.join(self.workspace, name)
             os.makedirs(path)
@@ -152,10 +155,13 @@ class GitHooksTest(unittest.TestCase):
                 os.makedirs(os.path.join(path, ".githooks"))
             if hooks_path:
                 git(path, "config", "core.hooksPath", hooks_path)
+            if origin:
+                git(path, "remote", "add", "origin", origin)
         os.makedirs(os.path.join(self.workspace, "not-a-repository", ".githooks"))
         self.attached = os.path.join(self.tmp, "attached")
         os.makedirs(os.path.join(self.attached, ".githooks"))
         git(self.attached, "init", "--quiet")
+        git(self.attached, "remote", "add", "origin", "git@github.com:arikkfir-org/attached.git")
 
     def hooks_path(self, directory):
         result = subprocess.run(
@@ -173,6 +179,10 @@ class GitHooksTest(unittest.TestCase):
         self.assertEqual(self.hooks_path(os.path.join(self.workspace, "with-hooks")), ".githooks")
         self.assertIsNone(self.hooks_path(os.path.join(self.workspace, "without-hooks")))
         self.assertEqual(self.hooks_path(os.path.join(self.workspace, "own-hooks-path")), "custom")
+        for name in ("third-party", "other-host", "no-origin"):
+            with self.subTest(repository=name):
+                self.assertNotIn(name, output["hookSpecificOutput"]["additionalContext"])
+                self.assertIsNone(self.hooks_path(os.path.join(self.workspace, name)))
         self.assertIsNone(self.run_git_hooks({"hook_event_name": "SessionStart", "cwd": self.workspace}))
 
     def test_session_start_in_a_repository(self):
