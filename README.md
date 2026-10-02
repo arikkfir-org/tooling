@@ -10,7 +10,7 @@ A user-level configuration installed into `~/.claude` of every Claude Code on th
 | File | Purpose |
 | --- | --- |
 | [`claude/CLAUDE.md`](claude/CLAUDE.md) | User-level instructions: tone, terseness, answer-first responses |
-| [`claude/settings.json`](claude/settings.json) | Registers the hooks |
+| [`claude/settings.json`](claude/settings.json) | Registers the hooks; runs the repositories' checks, local git and read-only GitHub tools without a prompt, and asks before `rm -r` |
 | [`claude/hooks/guard.py`](claude/hooks/guard.py) | `PreToolUse` (Bash): denies force-pushes/deletions of `main`/`master` and recursive deletion of `/` or `~` |
 | [`claude/hooks/format.py`](claude/hooks/format.py) | `PostToolUse` (Edit/Write): runs `gofmt` / `terraform fmt` on the written file and tells Claude when it changed |
 
