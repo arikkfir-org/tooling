@@ -50,7 +50,7 @@ python3 - "$work/existing/settings.json" <<'PYTHON' || fail "existing settings w
 import json, sys
 settings = json.load(open(sys.argv[1]))
 assert settings["model"] == "opus"
-assert set(settings["hooks"]) == {"Stop", "PreToolUse", "PostToolUse"}
+assert set(settings["hooks"]) == {"Stop", "SessionStart", "PreToolUse", "PostToolUse"}
 PYTHON
 [[ ! -e "$work/existing/hooks/arikkfir/stale.py" ]] || fail "stale bundle hook kept"
 [[ -e "$work/existing/hooks/mine/keep.sh" ]] || fail "foreign hook removed"
