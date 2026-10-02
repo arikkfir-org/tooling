@@ -4,13 +4,10 @@
     "allow": [
       "Bash(git add *)",
       "Bash(git commit *)",
-      "Bash(git checkout *)",
       "Bash(git switch *)",
-      "Bash(git branch *)",
       "Bash(git fetch *)",
       "Bash(git pull *)",
       "Bash(git merge *)",
-      "Bash(git stash *)",
       "Bash(git push *)",
       "Bash(go build *)",
       "Bash(go test *)",
@@ -51,7 +48,16 @@
       "Bash(rm -Rf *)",
       "Bash(rm -fR *)",
       "Bash(rm -r *)",
-      "Bash(rm -R *)"
+      "Bash(rm -R *)",
+      "Bash(git push --delete *)",
+      "Bash(git push -d *)",
+      "Bash(git push * --delete *)",
+      "Bash(git push * -d *)",
+      "Bash(git push * :*)",
+      "Bash(git switch -f *)",
+      "Bash(git switch --force *)",
+      "Bash(git switch --discard-changes *)",
+      "Bash(git switch -C *)"
     ]
   },
   "hooks": {

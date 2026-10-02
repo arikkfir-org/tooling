@@ -30,6 +30,34 @@ FORBIDDEN = [
     "git clean -fdx",
     "git rebase main",
     "rm -rf build",
+    # Local work that can't be recovered, and branches deleted on the remote.
+    "git checkout -- .",
+    "git checkout README.md",
+    "git branch -D feature",
+    "git stash drop",
+    "git stash clear",
+    "git switch -f main",
+    "git switch --discard-changes main",
+    "git switch -C feature",
+    "git push --delete origin feature",
+    "git push -d origin feature",
+    "git push origin --delete feature",
+    "git push origin :feature",
+]
+
+# Routine commands the bundle exists to run without a prompt.
+ROUTINE = [
+    "git add -A",
+    "git commit -m 'fix: x'",
+    "git switch -c feature",
+    "git switch main",
+    "git fetch origin main",
+    "git push -u origin HEAD",
+    "go test ./...",
+    "terraform validate",
+    "terraform init -backend=false -input=false",
+    "kubectl kustomize deploy",
+    "python3 -m unittest discover -s tests",
 ]
 
 
@@ -50,17 +78,27 @@ class PermissionsTest(unittest.TestCase):
     def bash_rules(self, kind):
         return [bash_rule(rule) for rule in self.permissions[kind] if rule.startswith("Bash(")]
 
+    def runs_without_a_prompt(self, command):
+        """Ask rules win over allow rules: a command runs unasked when it matches an allow rule and no ask rule."""
+        return any(rule.fullmatch(command) for rule in self.bash_rules("allow")) and not any(
+            rule.fullmatch(command) for rule in self.bash_rules("ask")
+        )
+
     def test_rules_are_scoped(self):
         for kind in ("allow", "ask"):
             for rule in self.permissions[kind]:
                 with self.subTest(rule=rule):
                     self.assertRegex(rule, r"^(Bash\([^*()][^()]*\)|mcp__github__[a-z_]+\*?)$")
 
-    def test_allow_rules_leave_forbidden_commands_alone(self):
-        allow = self.bash_rules("allow")
+    def test_forbidden_commands_never_run_unasked(self):
         for command in FORBIDDEN:
             with self.subTest(command=command):
-                self.assertFalse(any(rule.fullmatch(command) for rule in allow))
+                self.assertFalse(self.runs_without_a_prompt(command))
+
+    def test_routine_commands_run_unasked(self):
+        for command in ROUTINE:
+            with self.subTest(command=command):
+                self.assertTrue(self.runs_without_a_prompt(command))
 
     def test_recursive_deletion_asks(self):
         ask = self.bash_rules("ask")
