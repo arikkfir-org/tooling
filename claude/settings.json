@@ -54,10 +54,14 @@
       "Bash(git push * --delete *)",
       "Bash(git push * -d *)",
       "Bash(git push * :*)",
-      "Bash(git switch -f *)",
-      "Bash(git switch --force *)",
-      "Bash(git switch --discard-changes *)",
-      "Bash(git switch -C *)"
+      "Bash(git switch -f*)",
+      "Bash(git switch * -f*)",
+      "Bash(git switch --force*)",
+      "Bash(git switch * --force*)",
+      "Bash(git switch --di*)",
+      "Bash(git switch * --di*)",
+      "Bash(git switch -C*)",
+      "Bash(git switch * -C*)"
     ]
   },
   "hooks": {
