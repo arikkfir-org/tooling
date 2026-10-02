@@ -138,13 +138,13 @@ class PullRequestTest(unittest.TestCase):
     SCRIPT = os.path.join(ROOT, "claude", "hooks", "pull_request.py")
     RESULT = '{"id":"4711397174","url":"https://github.com/arikkfir-org/tooling/pull/14"}'
 
-    def remind(self, owner="arikkfir-org", reviewers=None, result=RESULT, error=False):
+    def remind(self, owner="arikkfir-org", reviewers=None, result=RESULT):
         arguments = {"owner": owner, "repo": "tooling", "title": "t", "head": "b", "base": "main"}
         if reviewers is not None:
             arguments["reviewers"] = reviewers
         payload = {
-            "tool_name": "mcp__github__create_pull_request", "tool_input": arguments,
-            "tool_result": result, "tool_result_is_error": error,
+            "hook_event_name": "PostToolUse", "tool_name": "mcp__github__create_pull_request",
+            "tool_input": arguments, "tool_response": result,
         }
         output = run_hook(self.SCRIPT, payload)
         return output["hookSpecificOutput"]["additionalContext"] if output else None
@@ -165,7 +165,6 @@ class PullRequestTest(unittest.TestCase):
 
     def test_silent_elsewhere(self):
         self.assertIsNone(self.remind(owner="weesp-ai"))
-        self.assertIsNone(self.remind(error=True))
         payload = {"tool_name": "mcp__github__update_pull_request", "tool_input": {"owner": "arikkfir-org"}}
         self.assertIsNone(run_hook(self.SCRIPT, payload))
 

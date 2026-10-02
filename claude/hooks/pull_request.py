@@ -4,7 +4,8 @@ of what the pull request still needs: the AI review, and a description that link
 
 Opening is not finishing: the author can't approve their own pull request, so the review that lets it merge is
 arikkfir-reviewer's, and nobody requests it unless the session does. A rule in prose needs the session to remember it
-at this moment; this hook is there at the moment. It reminds and blocks nothing.
+at this moment; this hook is there at the moment. It reminds and blocks nothing, and runs only after the call
+succeeded: a failed one fires PostToolUseFailure instead.
 """
 
 import json
@@ -21,13 +22,11 @@ def main():
         payload = json.load(sys.stdin)
         if not str(payload.get("tool_name") or "").endswith("__create_pull_request"):
             return
-        if payload.get("tool_result_is_error"):
-            return
         arguments = payload.get("tool_input") or {}
         owner, repo = str(arguments.get("owner") or ""), str(arguments.get("repo") or "")
         if owner.lower() != ORGANIZATION or not NAME.fullmatch(repo):
             return
-        result = json.dumps(payload.get("tool_result", payload.get("tool_response")))
+        result = json.dumps(payload.get("tool_response"))
         number = re.search(rf"github\.com/{re.escape(owner)}/{re.escape(repo)}/pull/(\d+)", result, re.I)
         requested = any(str(login).lower() == REVIEWER for login in arguments.get("reviewers") or [])
     except Exception:  # never break the session because of this hook
