@@ -3,7 +3,7 @@
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "mcp__.*__(add_repo|register_repo_root)",
+        "matcher": "^mcp__(claude-code-remote|Claude_Code_Remote)__(add_repo|register_repo_root)$",
         "hooks": [
           {
             "type": "command",

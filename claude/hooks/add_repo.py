@@ -9,13 +9,19 @@ import json
 import sys
 
 ORGANIZATION = "arikkfir-org"
-TOOLS = ("__add_repo", "__register_repo_root")
+# The remote-session server's tools, under the names it has in each kind of session. A tool of the same name from any
+# other server isn't trusted.
+TOOLS = {
+    f"mcp__{server}__{tool}"
+    for server in ("claude-code-remote", "Claude_Code_Remote")
+    for tool in ("add_repo", "register_repo_root")
+}
 
 
 def main():
     try:
         payload = json.load(sys.stdin)
-        if not str(payload.get("tool_name") or "").endswith(TOOLS):
+        if payload.get("tool_name") not in TOOLS:
             return
         owner = str((payload.get("tool_input") or {}).get("owner") or "")
     except Exception:  # never break the session because of this hook

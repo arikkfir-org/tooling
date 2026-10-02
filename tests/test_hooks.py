@@ -44,6 +44,7 @@ class AddRepoTest(unittest.TestCase):
             ("mcp__claude-code-remote__add_repo", "arikkfir-org-fork"),
             ("mcp__claude-code-remote__add_repo", None),
             ("mcp__github__create_repository", "arikkfir-org"),
+            ("mcp__someone-else__add_repo", "arikkfir-org"),
         ]:
             with self.subTest(tool=tool, owner=owner):
                 self.assertEqual(self.decide(tool, owner), "pass")
