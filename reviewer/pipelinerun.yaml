@@ -265,13 +265,16 @@ spec:
                 value: $(workspaces.shared.path)/.review/home/.local/state
               - name: XDG_CACHE_HOME
                 value: $(workspaces.shared.path)/.review/home/.cache
-              # Nothing from a reviewed repository (AGENTS.md, CLAUDE.md, opencode.json, .opencode/, plugins, skills)
-              # configures opencode: the working directory is the pull request's checkout.
+              # The working directory is the pull request's checkout, and no opencode.json, .opencode/, plugin, skill or
+              # CLAUDE.md from it configures opencode. opencode's read tool still hands the model an AGENTS.md or
+              # CONTEXT.md from a subdirectory of the checkout as instructions; no setting turns that off.
               - name: OPENCODE_CONFIG
                 value: $(workspaces.shared.path)/.review/opencode.json
               - name: OPENCODE_DISABLE_PROJECT_CONFIG
                 value: "1"
               - name: OPENCODE_DISABLE_EXTERNAL_SKILLS
+                value: "1"
+              - name: OPENCODE_DISABLE_CLAUDE_CODE_PROMPT
                 value: "1"
               - name: OPENCODE_DISABLE_SHARE
                 value: "1"

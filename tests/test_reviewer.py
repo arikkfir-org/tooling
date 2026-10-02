@@ -1391,7 +1391,8 @@ class ReviewPipelineRunTest(unittest.TestCase):
         self.assertIn('--output "${NAME}/pr.json"', step_script("state"))
 
     def test_nothing_in_the_checkout_configures_opencode(self):
-        for variable in ("OPENCODE_DISABLE_PROJECT_CONFIG", "OPENCODE_DISABLE_EXTERNAL_SKILLS"):
+        for variable in ("OPENCODE_DISABLE_PROJECT_CONFIG", "OPENCODE_DISABLE_EXTERNAL_SKILLS",
+                         "OPENCODE_DISABLE_CLAUDE_CODE_PROMPT"):
             self.assertIn(f"- name: {variable}\n                value: \"1\"\n", self.text)
 
     def test_the_model_runs_no_subagents(self):
