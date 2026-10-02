@@ -178,8 +178,8 @@ def check_git_push(rest, directory):
             targets.add(branch)
 
     hit = sorted(targets & PROTECTED_BRANCHES)
-    if hit and (force or delete):
-        action = "Deleting" if delete and not force else "Force-pushing"
+    if hit and (force or delete or prune):
+        action = "Deleting" if (delete or prune) and not force else "Force-pushing"
         return "deny", (
             f"{action} {', '.join(hit)} rewrites shared history. Push a branch and open a pull request instead."
         )

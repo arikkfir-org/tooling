@@ -56,6 +56,8 @@ class GuardTest(unittest.TestCase):
             ("git push origin --delete main", "on-feature"),
             ("git push origin :main", "on-feature"),
             ("git push --mirror origin", "on-feature"),
+            ("git push --prune origin main", "on-feature"),
+            ("git push --prune origin 'refs/heads/*:refs/heads/*' master", "on-feature"),
             ("git push --force", "on-main"),
             ("git push -f origin HEAD", "on-main"),
             ("git -C ../on-main push --force", "on-feature"),
