@@ -200,6 +200,20 @@ class GuardTest(unittest.TestCase):
             ("git push origin --delete main", "on-feature"),
             ("git push origin :main", "on-feature"),
             ("git push --mirror origin", "on-feature"),
+            ("git push --prune origin main", "on-feature"),
+            ("git push --force-w origin main", "on-feature"),
+            ("git push --mirr origin", "on-feature"),
+            ("timeout 30 git push -f origin main", "on-feature"),
+            ("nice -n 10 git push -f origin main", "on-feature"),
+            ("stdbuf --output L git push -f origin main", "on-feature"),
+            ("stdbuf --out L git push -f origin main", "on-feature"),
+            ("sudo -Eu root git push -f origin main", "on-feature"),
+            ("timeout --signal KILL 30 git push -f origin main", "on-feature"),
+            ("nice -- git push -f origin main", "on-feature"),
+            ("sudo -u root git push -f origin main", "on-feature"),
+            ("env -u HOME git push -f origin main", "on-feature"),
+            ("time -o /dev/null git push -f origin main", "on-feature"),
+            ("git push --prune origin 'refs/heads/*:refs/heads/*' master", "on-feature"),
             ("git push --force", "on-main"),
             ("git push -f origin HEAD", "on-main"),
             ("git -C ../on-main push --force", "on-feature"),
@@ -213,9 +227,51 @@ class GuardTest(unittest.TestCase):
             ('rm -rf "${HOME}"/*', "on-feature"),
             ("rm -r --no-preserve-root /tmp/x", "on-feature"),
             ("true; rm -Rf //", "on-feature"),
+            ("git switch -qf main && git push -f origin main", "on-feature"),
         ]:
             with self.subTest(command=command, cwd=cwd):
                 self.assertEqual(self.decide(command, cwd), "deny")
+
+    def test_asked(self):
+        for command, cwd in [
+            ("git push origin --delete feature", "on-feature"),
+            ("git push -d origin feature", "on-feature"),
+            ("git push origin :feature", "on-feature"),
+            ("git push origin :refs/heads/feature", "on-feature"),
+            ("git push --prune origin 'refs/heads/*:refs/heads/*'", "on-feature"),
+            ("git switch -f main", "on-feature"),
+            ("git switch -qf main", "on-feature"),
+            ("git switch main --discard-changes", "on-feature"),
+            ("git switch --disc main", "on-feature"),
+            ("git switch -C feature", "on-feature"),
+            ("git switch -qC feature", "on-feature"),
+            ("git switch --force-create=feature", "on-feature"),
+            ("git switch --force-c feature", "on-feature"),
+            ("git -C ../on-main switch --force main", "on-feature"),
+            ("git add -A && git switch -qf main", "on-feature"),
+            ("bash -c 'git switch -qf main'", "on-feature"),
+            ("git push origin --del feature", "on-feature"),
+            ("git push --pru origin", "on-feature"),
+            ("timeout 30 git switch -qf main", "on-feature"),
+            ("timeout -s KILL 30s git push origin :feature", "on-feature"),
+            ("stdbuf -o L git switch -qf main", "on-feature"),
+            ("xargs git switch -qf", "on-feature"),
+            ("builtin git switch -qf main", "on-feature"),
+            ("nice -n 10 git switch -qf main", "on-feature"),
+            ("stdbuf --output L git switch -qf main", "on-feature"),
+            ("stdbuf --output L git push origin :feature", "on-feature"),
+            ("sudo -uroot git switch -qf main", "on-feature"),
+            ("nice --adjustment 10 git push origin :feature", "on-feature"),
+            ("exec -a name git switch -qf main", "on-feature"),
+        ]:
+            with self.subTest(command=command, cwd=cwd):
+                self.assertEqual(self.decide(command, cwd), "ask")
+
+    def test_ask_names_only_the_deleted_branches(self):
+        payload = {"tool_name": "Bash", "tool_input": {"command": "git push origin feature :old"}, "cwd": self.tmp}
+        output = run_hook(GUARD, payload, env={"HOME": self.home})
+        reason = output["hookSpecificOutput"]["permissionDecisionReason"]
+        self.assertEqual(reason, "This push deletes old on the remote.")
 
     def test_passed(self):
         for command, cwd in [
@@ -227,6 +283,18 @@ class GuardTest(unittest.TestCase):
             ("git push origin main", "on-main"),
             ("git push --dry-run --force origin main", "on-feature"),
             ("git push -o ci.skip origin feature", "on-feature"),
+            ("git push --dry-run origin :feature", "on-feature"),
+            ("git switch main", "on-feature"),
+            ("git switch -c feature", "on-feature"),
+            ("git switch -cfix", "on-feature"),
+            ("git switch --create fix-ffoo", "on-feature"),
+            ("git switch --detach main", "on-feature"),
+            ("git switch -m main", "on-feature"),
+            ("git switch --no-guess main", "on-feature"),
+            ("git push --dry origin :feature", "on-feature"),
+            ("git push --no-force-with-lease origin main", "on-feature"),
+            ("git push --repo origin feature", "on-feature"),
+            ("timeout 30 git status", "on-feature"),
             ("git status && git log --oneline -3", "on-main"),
             ("echo 'git push --force origin main'", "on-feature"),
             ("rm -rf build dist", "on-feature"),
@@ -308,6 +376,7 @@ class CommitMessageTest(unittest.TestCase):
             ('git -C ../org commit -m "add a thing"', "other"),
             ('cd ../org && git commit -m "add a thing"', "other"),
             ("bash -c 'git commit -m \"add a thing\"'", "org"),
+            ('timeout 30 git commit -m "add a thing"', "org"),
             ('git commit -m "add a thing"', "org-ssh"),
         ]:
             with self.subTest(command=command, cwd=cwd):
