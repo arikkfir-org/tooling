@@ -290,6 +290,85 @@ class FormatTest(unittest.TestCase):
     def test_ignores_other_files(self):
         self.assertIsNone(self.run_format(self.write("notes.md", "#  x\n")))
 
+class GitHooksTest(unittest.TestCase):
+    SCRIPT = os.path.join(ROOT, "claude", "hooks", "git_hooks.py")
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.tmp)
+        self.workspace = os.path.join(self.tmp, "workspace")
+        for name, hooks, hooks_path, origin in (
+            ("with-hooks", True, None, "https://github.com/arikkfir-org/with-hooks"),
+            ("without-hooks", False, None, "https://github.com/arikkfir-org/without-hooks"),
+            ("own-hooks-path", True, "custom", "https://github.com/arikkfir-org/own-hooks-path"),
+            ("third-party", True, None, "https://github.com/someone-else/tool"),
+            ("other-host", True, None, "https://gitlab.com/arikkfir-org/tool"),
+            ("no-origin", True, None, None),
+        ):
+            path = os.path.join(self.workspace, name)
+            os.makedirs(path)
+            git(path, "init", "--quiet")
+            if hooks:
+                os.makedirs(os.path.join(path, ".githooks"))
+            if hooks_path:
+                git(path, "config", "core.hooksPath", hooks_path)
+            if origin:
+                git(path, "remote", "add", "origin", origin)
+        os.makedirs(os.path.join(self.workspace, "not-a-repository", ".githooks"))
+        self.attached = os.path.join(self.tmp, "attached")
+        os.makedirs(os.path.join(self.attached, ".githooks"))
+        git(self.attached, "init", "--quiet")
+        git(self.attached, "remote", "add", "origin", "git@github.com:arikkfir-org/attached.git")
+
+    def hooks_path(self, directory):
+        result = subprocess.run(
+            ["git", "-C", directory, "config", "--local", "--get", "core.hooksPath"], capture_output=True, text=True,
+        )
+        return result.stdout.strip() or None
+
+    def run_git_hooks(self, payload, remote="true"):
+        return run_hook(self.SCRIPT, payload, env={"CLAUDE_CODE_REMOTE": remote})
+
+    def test_session_start_arms_repositories_that_ship_hooks(self):
+        output = self.run_git_hooks({"hook_event_name": "SessionStart", "cwd": self.workspace})
+        self.assertEqual(output["hookSpecificOutput"]["hookEventName"], "SessionStart")
+        self.assertIn("with-hooks", output["hookSpecificOutput"]["additionalContext"])
+        self.assertEqual(self.hooks_path(os.path.join(self.workspace, "with-hooks")), ".githooks")
+        self.assertIsNone(self.hooks_path(os.path.join(self.workspace, "without-hooks")))
+        self.assertEqual(self.hooks_path(os.path.join(self.workspace, "own-hooks-path")), "custom")
+        for name in ("third-party", "other-host", "no-origin"):
+            with self.subTest(repository=name):
+                self.assertNotIn(name, output["hookSpecificOutput"]["additionalContext"])
+                self.assertIsNone(self.hooks_path(os.path.join(self.workspace, name)))
+        self.assertIsNone(self.run_git_hooks({"hook_event_name": "SessionStart", "cwd": self.workspace}))
+
+    def test_session_start_in_a_repository(self):
+        repository = os.path.join(self.workspace, "with-hooks")
+        output = self.run_git_hooks({"hook_event_name": "SessionStart", "cwd": repository})
+        self.assertIn("with-hooks", output["hookSpecificOutput"]["additionalContext"])
+
+    def test_register_repo_root_arms_the_attached_repository(self):
+        payload = {
+            "hook_event_name": "PostToolUse",
+            "tool_name": "mcp__claude-code-remote__register_repo_root",
+            "tool_input": {"owner": "arikkfir-org", "repo": "attached", "directory": self.attached},
+            "cwd": os.path.join(self.workspace, "without-hooks"),
+        }
+        output = self.run_git_hooks(payload)
+        self.assertEqual(output["hookSpecificOutput"]["hookEventName"], "PostToolUse")
+        self.assertEqual(self.hooks_path(self.attached), ".githooks")
+
+    def test_does_nothing_outside_cloud_sessions(self):
+        self.assertIsNone(self.run_git_hooks({"hook_event_name": "SessionStart", "cwd": self.workspace}, remote=""))
+        self.assertIsNone(self.hooks_path(os.path.join(self.workspace, "with-hooks")))
+
+    def test_garbage_input_is_ignored(self):
+        result = subprocess.run(
+            [sys.executable, self.SCRIPT], input="not json", capture_output=True, text=True, check=True,
+            env={**os.environ, "CLAUDE_CODE_REMOTE": "true"},
+        )
+        self.assertEqual(result.stdout, "")
+
 
 class PullRequestTest(unittest.TestCase):
     SCRIPT = os.path.join(ROOT, "claude", "hooks", "pull_request.py")
