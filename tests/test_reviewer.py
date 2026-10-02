@@ -1147,6 +1147,41 @@ class GitHubProxyTest(unittest.TestCase):
         self.assertIn(b"X-Folded: first  second", head)
         self.assertFalse([line for line in head[1:] if b":" not in line], head)
 
+    def raw(self, request, proxy=None):
+        """Sends raw bytes to the proxy and returns its whole response."""
+        with socket.create_connection(("127.0.0.1", (proxy or self.proxy).server_port), timeout=10) as connection:
+            connection.sendall(request)
+            response = b""
+            while chunk := connection.recv(65536):
+                response += chunk
+        return response
+
+    def test_request_bodies_are_bounded(self):
+        upload = b"POST /git/arikkfir-org/fin.git/git-upload-pack HTTP/1.1\r\nHost: x\r\n"
+        limit = github_proxy.MAX_BODY
+        for name, request, want in [
+            ("Content-Length over the limit", upload + b"Content-Length: %d\r\n\r\n" % (limit + 1), b"413"),
+            ("a chunk over the limit", upload + b"Transfer-Encoding: chunked\r\n\r\nffffffff\r\n", b"413"),
+            ("chunks adding up over the limit",
+             upload + b"Transfer-Encoding: chunked\r\n\r\n%x\r\n%s\r\n%x\r\n" % (limit, b"0" * limit, 1), b"413"),
+            ("a negative Content-Length", upload + b"Content-Length: -5\r\n\r\n", b"400"),
+            ("a negative chunk size", upload + b"Transfer-Encoding: chunked\r\n\r\n-5\r\n", b"400"),
+        ]:
+            with self.subTest(name):
+                self.assertTrue(self.raw(request).startswith(b"HTTP/1.1 " + want + b" "))
+        self.assertEqual(self.api.requests, [])
+
+    def test_a_stalled_body_times_out(self):
+        proxy = github_proxy.Server(self.token_file, port=0, api=self.api.url, git=self.api.url, log=self.log,
+                                    client_timeout=0.5)
+        threading.Thread(target=proxy.serve_forever, daemon=True).start()
+        self.addCleanup(proxy.server_close)
+        self.addCleanup(proxy.shutdown)
+        response = self.raw(b"POST /git/o/r.git/git-upload-pack HTTP/1.1\r\nHost: x\r\nContent-Length: 10\r\n\r\n0000",
+                            proxy=proxy)
+        self.assertTrue(response.startswith(b"HTTP/1.1 408 "), response)
+        self.assertEqual(self.api.requests, [])
+
     def test_unforwardable_requests(self):
         with socket.create_connection(("127.0.0.1", self.proxy.server_port), timeout=10) as connection:
             connection.sendall(b"GET /api/repos/o/r\x01 HTTP/1.1\r\nHost: x\r\n\r\n")

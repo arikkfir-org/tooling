@@ -22,6 +22,8 @@ GIT = "https://github.com"
 PORT = 8080
 TIMEOUT = 120
 CHUNK = 64 * 1024
+# The largest request body the proxy reads: only git-upload-pack carries one, a fetch's negotiation, far smaller.
+MAX_BODY = 8 * 1024 * 1024
 # Request headers the proxy drops: hop-by-hop ones (RFC 9110, 7.6.1), credentials, and those it sets itself.
 DROPPED_REQUEST = {"authorization", "connection", "content-length", "cookie", "host", "keep-alive",
                    "proxy-authorization", "proxy-connection", "te", "trailer", "transfer-encoding", "upgrade"}
@@ -87,6 +89,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     server_version = "github-proxy"
 
+    def setup(self):
+        # A client that stops sending gives up its thread after the server's timeout.
+        self.timeout = self.server.client_timeout
+        super().setup()
+
     def do_GET(self):
         # Every response ends its connection, so a body without Content-Length ends with it too.
         self.close_connection = True
@@ -102,8 +109,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return
         try:
             body = self.body()
+        except Refusal as refusal:
+            self.reply(refusal.status, str(refusal))
+            return
         except ValueError as error:
             self.reply(400, f"Unreadable request body: {error}\n")
+            return
+        except TimeoutError:
+            self.reply(408, "The request body didn't arrive in time.\n")
             return
         self.forward(upstream, target + (f"?{query}" if query else ""), authorization(upstream, token), body)
 
@@ -120,18 +133,28 @@ class Handler(http.server.BaseHTTPRequestHandler):
         return token
 
     def body(self):
-        """The request's body, de-chunked, or None."""
+        """The request's body, de-chunked, or None. Refuses one larger than MAX_BODY before reading it."""
+        too_large = Refusal(413, f"Request bodies are limited to {MAX_BODY} bytes.\n")
         if self.headers.get("Transfer-Encoding", "").lower() == "chunked":
-            parts = []
+            parts, total = [], 0
             while True:
-                size = int(self.rfile.readline().split(b";")[0].strip(), 16)
+                size = int(self.rfile.readline(64).split(b";")[0].strip(), 16)
+                if size < 0:
+                    raise ValueError(f"negative chunk size {size}")
                 if size == 0:
-                    while self.rfile.readline() not in (b"\r\n", b"\n", b""):
+                    while self.rfile.readline(1024) not in (b"\r\n", b"\n", b""):
                         pass  # trailers
                     return b"".join(parts)
+                total += size
+                if total > MAX_BODY:
+                    raise too_large
                 parts.append(self.rfile.read(size))
-                self.rfile.readline()
+                self.rfile.readline(64)
         length = int(self.headers.get("Content-Length") or 0)
+        if length < 0:
+            raise ValueError(f"negative Content-Length {length}")
+        if length > MAX_BODY:
+            raise too_large
         return self.rfile.read(length) if length else None
 
     def forward(self, upstream, target, auth, body):
@@ -199,9 +222,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
 class Server(http.server.ThreadingHTTPServer):
     daemon_threads = True
 
-    def __init__(self, token_file, port=PORT, api=API, git=GIT, log=sys.stderr):
+    def __init__(self, token_file, port=PORT, api=API, git=GIT, log=sys.stderr, client_timeout=TIMEOUT):
         super().__init__(("127.0.0.1", port), Handler)
-        self.token_file, self.log = token_file, log
+        self.token_file, self.log, self.client_timeout = token_file, log, client_timeout
         self.bases = {"api": api.rstrip("/"), "git": git.rstrip("/")}
 
 
