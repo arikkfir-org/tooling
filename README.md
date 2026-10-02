@@ -11,7 +11,7 @@ A user-level configuration installed into `~/.claude` of every Claude Code on th
 | --- | --- |
 | [`claude/CLAUDE.md`](claude/CLAUDE.md) | User-level instructions: tone, terseness, answer-first responses |
 | [`claude/settings.json`](claude/settings.json) | Registers the hooks; runs the repositories' checks, local git and read-only GitHub tools without a prompt, and asks before `rm -r`, a remote branch deletion or a switch that discards changes or resets a branch |
-| [`claude/hooks/guard.py`](claude/hooks/guard.py) | `PreToolUse` (Bash): denies force-pushes/deletions of `main`/`master` and recursive deletion of `/` or `~` |
+| [`claude/hooks/guard.py`](claude/hooks/guard.py) | `PreToolUse` (Bash): denies force-pushes/deletions of `main`/`master` and recursive deletion of `/` or `~`; asks before deleting any other remote branch and before a `git switch` that discards changes or resets a branch, in any spelling |
 | [`claude/hooks/format.py`](claude/hooks/format.py) | `PostToolUse` (Edit/Write): runs `gofmt` / `terraform fmt` on the written file and tells Claude when it changed |
 
 ### Using it
