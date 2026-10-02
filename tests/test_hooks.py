@@ -471,5 +471,44 @@ class GitHooksTest(unittest.TestCase):
         self.assertEqual(result.stdout, "")
 
 
+class PullRequestTest(unittest.TestCase):
+    SCRIPT = os.path.join(ROOT, "claude", "hooks", "pull_request.py")
+    RESULT = '{"id":"4711397174","url":"https://github.com/arikkfir-org/tooling/pull/14"}'
+
+    def remind(self, owner="arikkfir-org", reviewers=None, result=RESULT):
+        arguments = {"owner": owner, "repo": "tooling", "title": "t", "head": "b", "base": "main"}
+        if reviewers is not None:
+            arguments["reviewers"] = reviewers
+        payload = {
+            "hook_event_name": "PostToolUse", "tool_name": "mcp__github__create_pull_request",
+            "tool_input": arguments, "tool_response": result,
+        }
+        output = run_hook(self.SCRIPT, payload)
+        return output["hookSpecificOutput"]["additionalContext"] if output else None
+
+    def test_reminds_to_request_the_review_and_check_the_description(self):
+        message = self.remind()
+        self.assertIn("You opened #14 in arikkfir-org/tooling", message)
+        self.assertIn('reviewers: ["arikkfir-reviewer"]', message)
+        self.assertIn("ENG-", message)
+
+    def test_skips_the_review_step_when_already_requested(self):
+        message = self.remind(reviewers=["Arikkfir-Reviewer"])
+        self.assertNotIn("update_pull_request", message)
+        self.assertIn("ENG-", message)
+
+    def test_names_no_number_it_cannot_find(self):
+        self.assertIn("You opened a pull request in arikkfir-org/tooling", self.remind(result=None))
+
+    def test_silent_elsewhere(self):
+        self.assertIsNone(self.remind(owner="weesp-ai"))
+        payload = {"tool_name": "mcp__github__update_pull_request", "tool_input": {"owner": "arikkfir-org"}}
+        self.assertIsNone(run_hook(self.SCRIPT, payload))
+
+    def test_garbage_input_is_ignored(self):
+        result = subprocess.run([sys.executable, self.SCRIPT], input="{", capture_output=True, text=True, check=True)
+        self.assertEqual(result.stdout, "")
+
+
 if __name__ == "__main__":
     unittest.main()
