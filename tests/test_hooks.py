@@ -49,7 +49,16 @@ class DockerdTest(unittest.TestCase):
 
     def run_main(self, remote="true"):
         output = io.StringIO()
-        with mock.patch.dict(os.environ, {"CLAUDE_CODE_REMOTE": remote}), mock.patch("sys.stdout", output):
+        popen = subprocess.Popen
+
+        def started_and_awaited(*args, **kwargs):
+            # The daemon outlives the hook: wait for the fake one before cleanup deletes the directory it writes to.
+            process = popen(*args, **kwargs)
+            self.addCleanup(process.wait, 5)
+            return process
+
+        with mock.patch.dict(os.environ, {"CLAUDE_CODE_REMOTE": remote}), mock.patch("sys.stdout", output), \
+                mock.patch.object(self.hook.subprocess, "Popen", started_and_awaited):
             self.hook.main()
         return output.getvalue()
 

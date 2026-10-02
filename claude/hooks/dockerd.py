@@ -65,9 +65,13 @@ def start(log_path):
         log = open(log_path, "ab")
     except OSError:
         log = subprocess.DEVNULL
-    subprocess.Popen(
-        [DOCKERD], stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT, start_new_session=True,
-    )
+    try:
+        return subprocess.Popen(
+            [DOCKERD], stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT, start_new_session=True,
+        )
+    finally:
+        if log is not subprocess.DEVNULL:
+            log.close()  # the daemon has its own copy
 
 
 def main():
