@@ -68,11 +68,19 @@ the [design](https://github.com/arikkfir-org/docs/blob/main/hub/designs/pr-revie
 | [`reviewer/state.py`](reviewer/state.py) | Writes `pr.json`: the pull request, its files, and the conversation, reviews and threads of people with write access only |
 | [`reviewer/findings.py`](reviewer/findings.py) | Checks `findings.json` against the diff and the earlier findings |
 | [`reviewer/report.py`](reviewer/report.py) | Posts the review as `arikkfir-reviewer`, through [`reviewer/github.py`](reviewer/github.py) |
+| [`reviewer/github_proxy.py`](reviewer/github_proxy.py) | The review task's `github` sidecar: serves GitHub's API (reads only) and git fetches to the model on `127.0.0.1:8080`, adding the run's token, which the model never sees |
 
 Pipeline `review` is an organization pipeline, declared once in this repository's `.octomaton.yaml` (below), so every
 repository has it. Octomaton reads `reviewer/pipelinerun.yaml` from this repository's default branch, and the scripts
 and the prompt run from the default branch too: `setup` extracts `reviewer/` from it, and `report` clones its own copy.
 So no pull request, here or elsewhere, changes its own review; a change here takes effect once merged.
+
+The model runs in the reviewer image, `me-west1-docker.pkg.dev/arikkfir/images/reviewer` (opencode plus bash, python3,
+git, jq, yq, curl, wget and GNU userland), which `arikkfir-org/octomaton` builds from `images/reviewer` and publishes
+from its `main`. `reviewer/pipelinerun.yaml` pins it by digest: bump the digest after it publishes a change. Octomaton
+mints the run's token for every repository of the organization, reading code and pull requests only. `setup` clones
+with it, and in `review` only the `github` sidecar mounts it, so the model reads other repositories' code and pull
+requests (an internal one's too) through the sidecar, never with the token.
 
 ## Docs site
 

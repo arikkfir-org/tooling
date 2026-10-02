@@ -8,11 +8,13 @@ import json
 import os
 import re
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
 import textwrap
 import threading
+import tracemalloc
 import unittest
 import urllib.error
 from unittest import mock
@@ -23,6 +25,7 @@ sys.path.insert(0, REVIEWER_DIR)
 
 import findings  # noqa: E402  (imported from reviewer/, as the pipeline runs it)
 import github  # noqa: E402
+import github_proxy  # noqa: E402
 import report  # noqa: E402
 import state  # noqa: E402
 
@@ -877,9 +880,9 @@ class FakeGitHandler(http.server.BaseHTTPRequestHandler):
         pass
 
 
-class CloneStepTest(unittest.TestCase):
-    """Runs setup's clone step against a local github.com, where the hub's five repositories are public and fin is
-    internal."""
+class LocalGitHubTest(unittest.TestCase):
+    """A local github.com, where the hub's five repositories are public and fin is internal, each with pull request #7,
+    and a workspace for each test."""
 
     HUB = ["docs", "infra", "delivery", "octomaton", "tooling"]
     TOKEN = "test-installation-token-" + "0" * 40  # long enough for base64 to wrap the credentials
@@ -931,6 +934,25 @@ class CloneStepTest(unittest.TestCase):
         self.workspace = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.workspace)
 
+    def authorizations(self):
+        """Each repository's Authorization headers, in the order of its requests, repeats collapsed."""
+        headers = {}
+        for repository, authorization in self.server.requests:
+            headers.setdefault(repository, []).append(authorization)
+        return {repository: [key for key, _ in itertools.groupby(values)] for repository, values in headers.items()}
+
+    def assert_no_token(self, log):
+        for secret in (self.TOKEN, self.credentials):
+            self.assertNotIn(secret, log)
+            for directory, _, files in os.walk(self.workspace):
+                for name in files:
+                    with open(os.path.join(directory, name), "rb") as f:
+                        self.assertNotIn(secret.encode(), f.read(), os.path.join(directory, name))
+
+
+class CloneStepTest(LocalGitHubTest):
+    """Runs setup's clone step against the local github.com."""
+
     def clone(self, repository):
         """Runs the clone step as Tekton would, in the workspace, with github.com pointing at the local server. Returns
         its log."""
@@ -943,13 +965,6 @@ class CloneStepTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         return result.stdout + result.stderr
 
-    def authorizations(self):
-        """Each repository's Authorization headers, in the order of its requests, repeats collapsed."""
-        headers = {}
-        for repository, authorization in self.server.requests:
-            headers.setdefault(repository, []).append(authorization)
-        return {repository: [key for key, _ in itertools.groupby(values)] for repository, values in headers.items()}
-
     def assert_reviewed(self, name):
         repository = os.path.join(self.workspace, "repos", name)
         self.assertEqual(self.git(repository, "rev-parse", "HEAD"), self.heads[f"arikkfir-org/{name}"])
@@ -958,14 +973,6 @@ class CloneStepTest(unittest.TestCase):
         with open(os.path.join(self.workspace, "pr.log"), encoding="utf-8") as f:
             self.assertIn("change.txt", f.read())
         self.assertTrue(os.path.isfile(os.path.join(self.workspace, ".review", "prompt.md")))
-
-    def assert_no_token(self, log):
-        for secret in (self.TOKEN, self.credentials):
-            self.assertNotIn(secret, log)
-            for directory, _, files in os.walk(self.workspace):
-                for name in files:
-                    with open(os.path.join(directory, name), "rb") as f:
-                        self.assertNotIn(secret.encode(), f.read(), os.path.join(directory, name))
 
     def test_an_internal_repository(self):
         log = self.clone("arikkfir-org/fin")
@@ -981,6 +988,358 @@ class CloneStepTest(unittest.TestCase):
                                                  "arikkfir-org/infra": [None, self.server.authorization]})
         self.assert_reviewed("infra")
         self.assert_no_token(log)
+
+class FakeAPI(http.server.ThreadingHTTPServer):
+    """api.github.com, recording each request (method, path with query, headers, body) and answering per path."""
+
+    daemon_threads = True
+
+    def __init__(self):
+        super().__init__(("127.0.0.1", 0), FakeAPIHandler)
+        self.requests = []
+
+    @property
+    def url(self):
+        return f"http://127.0.0.1:{self.server_port}"
+
+
+class FakeAPIHandler(http.server.BaseHTTPRequestHandler):
+    protocol_version = "HTTP/1.1"
+
+    def do_GET(self):
+        length = int(self.headers.get("Content-Length") or 0)
+        body = self.rfile.read(length) if length else b""
+        self.server.requests.append((self.command, self.path, dict(self.headers), body))
+        path = self.path.partition("?")[0]
+        if path == "/moved":
+            self.answer(301, b"", Location=f"{self.server.url}/repositories/1/pulls/1")
+        elif path == "/folded":
+            # An obs-fold: a header value continued on the next line.
+            self.answer(200, b"", **{"X-Folded": "first\r\n second"})
+        elif path == "/missing":
+            self.answer(404, b'{"message": "Not Found"}', **{"Content-Type": "application/json"})
+        elif path == "/streamed":
+            # No Content-Length: the body comes in chunks.
+            self.send_response(200)
+            self.send_header("Transfer-Encoding", "chunked")
+            self.send_header("Set-Cookie", "session=1")
+            self.end_headers()
+            for chunk in (b"first ", b"second"):
+                self.wfile.write(b"%x\r\n%s\r\n" % (len(chunk), chunk))
+            self.wfile.write(b"0\r\n\r\n")
+        else:
+            self.answer(200, b'{"number": 1}', **{"Content-Type": "application/json", "ETag": '"abc"'})
+
+    do_HEAD = do_POST = do_GET
+
+    def answer(self, status, body, **headers):
+        self.send_response(status)
+        for name, value in headers.items():
+            self.send_header(name, value)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        if self.command != "HEAD":
+            self.wfile.write(body)
+
+    def log_message(self, *args):
+        pass
+
+
+class GitHubProxyTest(unittest.TestCase):
+    """The github sidecar's proxy: reads go to GitHub with the token, nothing else goes anywhere."""
+
+    TOKEN = "ghs_proxy_test_token"
+
+    def setUp(self):
+        self.api = FakeAPI()
+        threading.Thread(target=self.api.serve_forever, daemon=True).start()
+        self.addCleanup(self.api.server_close)
+        self.addCleanup(self.api.shutdown)
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp)
+        self.token_file = os.path.join(tmp, "token")
+        self.set_token(self.TOKEN + "\n")
+        self.log = io.StringIO()
+        self.proxy = self.serve(self.api.url, self.api.url)
+
+    def serve(self, api, git):
+        proxy = github_proxy.Server(self.token_file, port=0, api=api, git=git, log=self.log)
+        threading.Thread(target=proxy.serve_forever, daemon=True).start()
+        self.addCleanup(proxy.server_close)
+        self.addCleanup(proxy.shutdown)
+        return proxy
+
+    def set_token(self, text):
+        with open(self.token_file, "w", encoding="utf-8") as f:
+            f.write(text)
+
+    def request(self, method, path, body=None, headers=None, proxy=None, chunked=False):
+        connection = http.client.HTTPConnection("127.0.0.1", (proxy or self.proxy).server_port, timeout=10)
+        self.addCleanup(connection.close)
+        connection.request(method, path, body=body, headers=headers or {}, encode_chunked=chunked)
+        response = connection.getresponse()
+        return response.status, dict(response.getheaders()), response.read()
+
+    def test_api_reads_carry_the_token(self):
+        status, headers, body = self.request("GET", "/api/repos/arikkfir-org/fin/pulls/1?per_page=5", headers={
+            "Authorization": "Bearer forged", "Cookie": "session=1", "Accept": "application/vnd.github.diff"})
+        self.assertEqual((status, body, headers["Content-Type"], headers["ETag"]), (200, b'{"number": 1}',
+                                                                                    "application/json", '"abc"'))
+        [(method, path, sent, _)] = self.api.requests
+        self.assertEqual((method, path), ("GET", "/repos/arikkfir-org/fin/pulls/1?per_page=5"))
+        self.assertEqual(sent["Authorization"], f"Bearer {self.TOKEN}")
+        self.assertEqual(sent["Accept"], "application/vnd.github.diff")
+        self.assertNotIn("Cookie", sent)
+
+    def test_head(self):
+        status, headers, body = self.request("HEAD", "/api/repos/arikkfir-org/fin")
+        self.assertEqual((status, body, headers["Content-Length"]), (200, b"", "13"))
+        self.assertEqual(self.api.requests[0][:2], ("HEAD", "/repos/arikkfir-org/fin"))
+
+    def test_api_writes_and_graphql_are_refused(self):
+        for method, path in [("POST", "/api/repos/o/r/issues"), ("PUT", "/api/repos/o/r/pulls/1/merge"),
+                             ("PATCH", "/api/repos/o/r"), ("DELETE", "/api/repos/o/r"), ("POST", "/api/graphql"),
+                             ("OPTIONS", "/api/repos/o/r")]:
+            with self.subTest(method=method, path=path):
+                status, _, body = self.request(method, path, body=b"{}")
+                self.assertEqual(status, 405)
+                self.assertIn(b"read-only", body)
+        self.assertEqual(self.api.requests, [])
+
+    def test_other_paths(self):
+        for method, path, want in [("GET", "/healthz", 200), ("GET", "/", 404), ("GET", "/repos/o/r", 404),
+                                   ("GET", "http://example.com/api/repos/o/r", 404), ("GET", "/git/o/r", 404),
+                                   ("GET", "/git/o/r.git/HEAD", 404), ("POST", "/git/o/r.git/git-receive-pack", 404),
+                                   ("GET", "/git/o/r.git/info/refs?service=git-receive-pack", 403),
+                                   ("GET", "/git/o/r.git/info/refs", 403), ("GET", "/git/o/r.git/git-upload-pack", 405)]:
+            with self.subTest(method=method, path=path):
+                self.assertEqual(self.request(method, path)[0], want)
+        self.assertEqual(self.api.requests, [])
+
+    def test_the_token_is_read_for_each_request(self):
+        self.request("GET", "/api/user")
+        self.set_token("ghs_refreshed\n")
+        self.request("GET", "/api/user")
+        self.assertEqual([sent["Authorization"] for _, _, sent, _ in self.api.requests],
+                         [f"Bearer {self.TOKEN}", "Bearer ghs_refreshed"])
+
+    def test_no_token(self):
+        for text in ("", "\n"):
+            self.set_token(text)
+            self.assertEqual(self.request("GET", "/api/user")[0], 503)
+        os.remove(self.token_file)
+        self.assertEqual(self.request("GET", "/api/user")[0], 503)
+        self.assertEqual(self.api.requests, [])
+
+    def test_responses_pass_through(self):
+        status, headers, body = self.request("GET", "/api/missing")
+        self.assertEqual((status, body), (404, b'{"message": "Not Found"}'))
+        status, headers, body = self.request("GET", "/api/streamed")
+        self.assertEqual((status, body), (200, b"first second"))
+        self.assertNotIn("Set-Cookie", headers)
+
+    def test_response_headers_stay_on_one_line(self):
+        with socket.create_connection(("127.0.0.1", self.proxy.server_port), timeout=10) as connection:
+            connection.sendall(b"GET /api/folded HTTP/1.1\r\nHost: x\r\n\r\n")
+            raw = b""
+            while chunk := connection.recv(65536):
+                raw += chunk
+        head = raw.partition(b"\r\n\r\n")[0].split(b"\r\n")
+        self.assertIn(b"X-Folded: first  second", head)
+        self.assertFalse([line for line in head[1:] if b":" not in line], head)
+
+    def raw(self, request, proxy=None):
+        """Sends raw bytes to the proxy and returns its whole response."""
+        with socket.create_connection(("127.0.0.1", (proxy or self.proxy).server_port), timeout=10) as connection:
+            connection.sendall(request)
+            response = b""
+            while chunk := connection.recv(65536):
+                response += chunk
+        return response
+
+    def test_request_bodies_are_bounded(self):
+        upload = b"POST /git/arikkfir-org/fin.git/git-upload-pack HTTP/1.1\r\nHost: x\r\n"
+        limit = github_proxy.MAX_BODY
+        for name, request, want in [
+            ("Content-Length over the limit", upload + b"Content-Length: %d\r\n\r\n" % (limit + 1), b"413"),
+            ("a chunk over the limit", upload + b"Transfer-Encoding: chunked\r\n\r\nffffffff\r\n", b"413"),
+            ("chunks adding up over the limit",
+             upload + b"Transfer-Encoding: chunked\r\n\r\n%x\r\n%s\r\n%x\r\n" % (limit, b"0" * limit, 1), b"413"),
+            ("a negative Content-Length", upload + b"Content-Length: -5\r\n\r\n", b"400"),
+            ("a negative chunk size", upload + b"Transfer-Encoding: chunked\r\n\r\n-5\r\n", b"400"),
+        ]:
+            with self.subTest(name):
+                self.assertTrue(self.raw(request).startswith(b"HTTP/1.1 " + want + b" "))
+        self.assertEqual(self.api.requests, [])
+
+    def test_many_small_chunks_stay_small(self):
+        # 200,000 one-byte chunks: the body's memory must follow its bytes, not the number of chunks.
+        count = 200_000
+        request = (b"POST /git/arikkfir-org/fin.git/git-upload-pack HTTP/1.1\r\nHost: x\r\n"
+                   b"Transfer-Encoding: chunked\r\n\r\n" + b"1\r\nx\r\n" * count + b"0\r\n\r\n")
+        tracemalloc.start()
+        self.addCleanup(tracemalloc.stop)
+        tracemalloc.reset_peak()
+        response = self.raw(request)
+        _, peak = tracemalloc.get_traced_memory()
+        self.assertTrue(response.startswith(b"HTTP/1.1 200 "), response[:100])
+        self.assertEqual(self.api.requests[-1][3], b"x" * count)
+        self.assertLess(peak, 4 * 1024 * 1024)
+
+    def test_a_stalled_body_times_out(self):
+        proxy = github_proxy.Server(self.token_file, port=0, api=self.api.url, git=self.api.url, log=self.log,
+                                    client_timeout=0.5)
+        threading.Thread(target=proxy.serve_forever, daemon=True).start()
+        self.addCleanup(proxy.server_close)
+        self.addCleanup(proxy.shutdown)
+        response = self.raw(b"POST /git/o/r.git/git-upload-pack HTTP/1.1\r\nHost: x\r\nContent-Length: 10\r\n\r\n0000",
+                            proxy=proxy)
+        self.assertTrue(response.startswith(b"HTTP/1.1 408 "), response)
+        self.assertEqual(self.api.requests, [])
+
+    def test_unforwardable_requests(self):
+        with socket.create_connection(("127.0.0.1", self.proxy.server_port), timeout=10) as connection:
+            connection.sendall(b"GET /api/repos/o/r\x01 HTTP/1.1\r\nHost: x\r\n\r\n")
+            raw = connection.recv(65536)
+        self.assertTrue(raw.startswith(b"HTTP/1.1 400 "), raw)
+        self.assertEqual(self.api.requests, [])
+
+    def test_redirects_stay_on_the_proxy(self):
+        status, headers, _ = self.request("GET", "/api/moved")
+        self.assertEqual((status, headers["Location"]), (301, "/api/repositories/1/pulls/1"))
+        self.assertEqual(github_proxy.local_location("https://github.com/o/r.git/info/refs?service=git-upload-pack",
+                                                     {"api": github_proxy.API, "git": github_proxy.GIT}),
+                         "/git/o/r.git/info/refs?service=git-upload-pack")
+        self.assertEqual(github_proxy.local_location("https://codeload.github.com/o/r/tar.gz/main",
+                                                     {"api": github_proxy.API, "git": github_proxy.GIT}),
+                         "https://codeload.github.com/o/r/tar.gz/main")
+
+    def test_git_fetches_use_basic_credentials(self):
+        credentials = base64.b64encode(f"x-access-token:{self.TOKEN}".encode()).decode()
+        # git sends a large request in chunks.
+        for name, body, chunked in [("whole", b"0032want abc\n", False), ("chunked", [b"0032want ", b"abc\n"], True)]:
+            with self.subTest(name):
+                self.api.requests.clear()
+                status, _, _ = self.request("POST", "/git/arikkfir-org/fin.git/git-upload-pack", body=body,
+                                            headers={"Content-Type": "application/x-git-upload-pack-request"},
+                                            chunked=chunked)
+                self.assertEqual(status, 200)
+                [(method, path, sent, received)] = self.api.requests
+                self.assertEqual((method, path, received), ("POST", "/arikkfir-org/fin.git/git-upload-pack",
+                                                            b"0032want abc\n"))
+                self.assertEqual(sent["Authorization"], f"Basic {credentials}")
+                self.assertEqual(sent["Content-Type"], "application/x-git-upload-pack-request")
+        status, _, _ = self.request("GET", "/git/arikkfir-org/fin.git/info/refs?service=git-upload-pack")
+        self.assertEqual((status, self.api.requests[-1][1]), (200, "/arikkfir-org/fin.git/info/refs?service=git-upload-pack"))
+
+    def test_github_unreachable(self):
+        with socket_port() as port:
+            proxy = self.serve(f"http://127.0.0.1:{port}", f"http://127.0.0.1:{port}")
+        status, _, body = self.request("GET", "/api/user", proxy=proxy)
+        self.assertEqual(status, 502)
+        self.assertNotIn(self.TOKEN.encode(), body)
+
+    def test_the_log_holds_no_token(self):
+        self.request("GET", "/api/repos/o/r")
+        self.request("POST", "/git/o/r.git/git-upload-pack", body=b"0000")
+        self.assertIn("GET /api/repos/o/r", self.log.getvalue())
+        self.assertNotIn(self.TOKEN, self.log.getvalue())
+
+
+@contextlib.contextmanager
+def socket_port():
+    """A local port nothing listens on once the block ends."""
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        yield s.getsockname()[1]
+
+
+class GitThroughProxyTest(LocalGitHubTest):
+    """git clones and fetches internal repositories through the proxy, which holds the token, and can't push."""
+
+    def setUp(self):
+        super().setUp()
+        self.token_file = os.path.join(self.token_dir, "token")
+        git = f"http://127.0.0.1:{self.server.server_port}"
+        self.proxy = github_proxy.Server(self.token_file, port=0, api=git, git=git, log=io.StringIO())
+        threading.Thread(target=self.proxy.serve_forever, daemon=True).start()
+        self.addCleanup(self.proxy.server_close)
+        self.addCleanup(self.proxy.shutdown)
+
+    def run_git(self, *args, cwd=None):
+        return subprocess.run(["git", *args], cwd=cwd or self.workspace, env=self.env, capture_output=True, text=True)
+
+    def test_clone_and_fetch_an_internal_repository(self):
+        url = f"http://127.0.0.1:{self.proxy.server_port}/git/arikkfir-org/fin.git"
+        result = self.run_git("clone", "--quiet", url, "fin")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        fin = os.path.join(self.workspace, "fin")
+        result = self.run_git("fetch", "--quiet", "origin", "+refs/pull/7/head", cwd=fin)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.git(fin, "rev-parse", "FETCH_HEAD"), self.heads["arikkfir-org/fin"])
+        self.assertEqual(set(self.authorizations()["arikkfir-org/fin"]), {self.server.authorization})
+        self.assert_no_token(result.stdout + result.stderr)
+
+    def test_push_is_refused(self):
+        url = f"http://127.0.0.1:{self.proxy.server_port}/git/arikkfir-org/fin.git"
+        self.assertEqual(self.run_git("clone", "--quiet", url, "fin").returncode, 0)
+        self.server.requests.clear()
+        result = self.run_git("push", "origin", "HEAD:refs/heads/evil", cwd=os.path.join(self.workspace, "fin"))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self.server.requests, [])
+
+
+class ReviewPipelineRunTest(unittest.TestCase):
+    """The review task: the reviewer image, and the token for the github sidecar alone."""
+
+    @classmethod
+    def setUpClass(cls):
+        with open(os.path.join(REVIEWER_DIR, "pipelinerun.yaml"), encoding="utf-8") as f:
+            cls.text = f.read()
+
+    def test_the_reviewer_image_is_pinned_by_digest(self):
+        images = re.findall(r"image: (\S*/images/reviewer\S*)", self.text)
+        self.assertEqual(len(images), 3)  # the review and fix steps, and the github sidecar
+        for image in images:
+            self.assertRegex(image, r"^me-west1-docker\.pkg\.dev/arikkfir/images/reviewer:[0-9a-f]{7}@sha256:[0-9a-f]{64}$")
+
+    def test_only_the_sidecar_mounts_the_token(self):
+        review = self.text[self.text.index("      - name: review\n"):self.text.index("      - name: report\n")]
+        self.assertRegex(review, r"\n {10}sidecars:\n {12}- name: github\n(?: {14}.*\n)*? {14}workspaces:\n"
+                                 r" {16}- name: github-token\n")
+        steps = review[review.index("\n          steps:\n"):]
+        for step in ("review", "fix"):
+            with self.subTest(step=step):
+                script = step_script(step)
+                self.assertIn("/workspace/github-token", script)
+                self.assertNotIn("$(workspaces.github-token", script)
+        self.assertNotIn("github-token", steps.replace("/workspace/github-token", ""))
+
+    def test_the_model_never_runs_where_the_token_is_mounted(self):
+        for step in ("review", "fix"):
+            for mounted in (True, False):
+                with self.subTest(step=step, mounted=mounted), tempfile.TemporaryDirectory() as root:
+                    token = os.path.join(root, "workspace", "github-token")
+                    if mounted:
+                        os.makedirs(token)
+                    work, bin_dir, config = (os.path.join(root, name) for name in ("work", "bin", "config"))
+                    os.makedirs(os.path.join(work, ".review"))
+                    for name in ("errors.txt", "prompt.md"):
+                        with open(os.path.join(work, ".review", name), "w", encoding="utf-8") as f:
+                            f.write("text\n")
+                    os.makedirs(bin_dir)
+                    with open(os.path.join(bin_dir, "opencode"), "w", encoding="utf-8") as f:
+                        f.write("#!/bin/sh\ntouch \"$RAN\"\n")
+                    os.chmod(os.path.join(bin_dir, "opencode"), 0o755)
+                    ran = os.path.join(root, "ran")
+                    env = {"PATH": f"{bin_dir}:{os.environ['PATH']}", "XDG_CONFIG_HOME": config, "RAN": ran}
+                    script = step_script(step).replace("/workspace/github-token", token)
+                    result = subprocess.run(["sh", "-c", script], cwd=work, env=env, input="", capture_output=True,
+                                            text=True)
+                    self.assertEqual((result.returncode != 0, os.path.exists(ran)), (mounted, not mounted),
+                                     result.stderr)
+                    if mounted:
+                        self.assertIn("refusing to run the model", result.stderr)
 
 
 if __name__ == "__main__":

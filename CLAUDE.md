@@ -28,7 +28,10 @@ request reviewer (`reviewer/`), and the organization pipelines every repository 
   default branch and treat the repository under test as data. `compose.py` is stdlib-only and covered by
   `tests/test_docs_site.py`; `links.lua` by `tests/test_links.sh`.
 - The reviewer's PipelineRun references only Secrets `reviewer-deepseek-api-key` and `reviewer-github-pat`, plus the
-  token workspace Octomaton binds. Never add another.
+  token workspace Octomaton binds. Never add another. The token reads every repository: only `setup` and the `github`
+  sidecar of `review` mount it (an isolated workspace), never a step that runs the model.
+- The model runs in `me-west1-docker.pkg.dev/arikkfir/images/reviewer`, which `arikkfir-org/octomaton` builds
+  (`images/reviewer`). Pin it by digest; add tools there, not here.
 
 ## Before finishing a change
 

@@ -40,9 +40,12 @@ organization:
         revision: "{{ .Revision }}"
         base-ref: "{{ .PullRequest.BaseRef }}"
         reviewer: "{{ .ReviewRequest.Reviewer }}"
+      # Reads the code and pull requests of every repository: setup clones with it, and review's github sidecar serves
+      # GitHub to the model with it.
       githubToken:
         workspace: github-token
         permissions: {contents: read, pull_requests: read}
+        repositories: all
       secrets: [reviewer-deepseek-api-key, reviewer-github-pat]
       timeout: 1h
     # The docs site (arikkfir-org/docs, hub/designs/docs-site-composition.md): every repository's docs (the docs
