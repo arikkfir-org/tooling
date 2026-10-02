@@ -53,7 +53,6 @@
       "Bash(git push -d *)",
       "Bash(git push * --delete *)",
       "Bash(git push * -d *)",
-      "Bash(git push * :*)",
       "Bash(git switch -f*)",
       "Bash(git switch * -f*)",
       "Bash(git switch --force*)",

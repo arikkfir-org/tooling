@@ -1,10 +1,17 @@
 #!/usr/bin/env python3
-"""PreToolUse hook for Bash: denies commands that destroy work in ways that are hard to undo.
+"""PreToolUse hook for Bash: denies commands that destroy work in ways that are hard to undo, and asks before others
+that lose work.
 
 Denied:
   * force pushes (--force, -f, --force-with-lease, --mirror, "+" refspecs) and remote branch deletions that target
     main or master, named explicitly or implied by pushing a checked-out main/master branch
   * recursive deletion of the filesystem root or the home directory
+
+Asked, even when a permission rule allows the command:
+  * a push that deletes any other remote branch (--delete, -d, a ":branch" refspec) or prunes them (--prune)
+  * a git switch that discards uncommitted changes or resets a branch (-f, --force, --discard-changes, -C,
+    --force-create), however its options are clustered, attached or abbreviated: settings.json's ask rules are globs,
+    which can't match `-qf` without matching `git switch -c` too
 
 Everything else, including anything this hook cannot parse, continues through the normal permission flow.
 """
@@ -22,6 +29,8 @@ WRAPPERS = {"sudo", "env", "nohup", "time", "command", "exec", "nice"}
 SHELLS = {"sh", "bash", "zsh", "dash", "ash"}
 GIT_OPTIONS_WITH_VALUE = {"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path"}
 PUSH_OPTIONS_WITH_VALUE = {"-o", "--push-option", "--repo", "--receive-pack", "--exec"}
+# git switch's long options that lose local work; git accepts any unambiguous prefix, and --force is one of the first.
+SWITCH_LOSING_WORK = ("force-create", "discard-changes")
 
 
 def simple_commands(command):
@@ -74,7 +83,8 @@ def current_branch(directory):
     return result.stdout.strip() if result.returncode == 0 else None
 
 
-def check_git_push(args, cwd):
+def git_subcommand(args, cwd):
+    """Skips git's global options. Returns the directory -C points at, the subcommand and its arguments."""
     directory = cwd
     i = 0
     while i < len(args) and args[i].startswith("-"):
@@ -84,12 +94,40 @@ def check_git_push(args, cwd):
         if args[i] in GIT_OPTIONS_WITH_VALUE:
             i += 1
         i += 1
-    if i >= len(args) or args[i] != "push":
-        return None
+    if i >= len(args):
+        return directory, None, []
+    return directory, args[i], args[i + 1:]
 
-    force = delete = dry_run = every_branch = False
+
+def check_git(args, cwd):
+    directory, subcommand, rest = git_subcommand(args, cwd)
+    if subcommand == "push":
+        return check_git_push(rest, directory)
+    if subcommand == "switch" and switch_loses_work(rest):
+        return "ask", "This git switch discards uncommitted changes or resets a branch."
+    return None
+
+
+def switch_loses_work(args):
+    for word in args:
+        if word == "--":
+            break
+        if word.startswith("--"):
+            name = word[2:].split("=", 1)[0]
+            if len(name) >= 2 and any(option.startswith(name) for option in SWITCH_LOSING_WORK):
+                return True
+        elif word.startswith("-"):
+            for letter in word[1:]:
+                if letter in "fC":
+                    return True
+                if letter == "c":  # the rest of the cluster, or the next word, names the branch it creates
+                    break
+    return False
+
+
+def check_git_push(rest, directory):
+    force = delete = dry_run = every_branch = prune = False
     positional = []
-    rest = args[i + 1:]
     j = 0
     while j < len(rest):
         word = rest[j]
@@ -105,6 +143,8 @@ def check_git_push(args, cwd):
             dry_run = True
         if word in ("--mirror", "--all", "--branches"):
             every_branch = True
+        if word == "--prune":
+            prune = True
         if word in PUSH_OPTIONS_WITH_VALUE or "o" in flags:
             j += 1
         elif not word.startswith("-"):
@@ -114,7 +154,8 @@ def check_git_push(args, cwd):
     if dry_run:
         return None
     refspecs = positional[1:]
-    targets = set()
+    every_target_deleted = delete
+    targets, deleted = set(), set()
     for refspec in refspecs:
         if refspec.startswith("+"):
             force = True
@@ -125,7 +166,10 @@ def check_git_push(args, cwd):
         target = destination or source
         if target == "HEAD":
             target = current_branch(directory) or ""
-        targets.add(re.sub(r"^refs/heads/", "", target))
+        target = re.sub(r"^refs/heads/", "", target)
+        targets.add(target)
+        if refspec.startswith(":"):
+            deleted.add(target)
     if every_branch:
         targets |= PROTECTED_BRANCHES
     if not refspecs and not every_branch:
@@ -136,7 +180,14 @@ def check_git_push(args, cwd):
     hit = sorted(targets & PROTECTED_BRANCHES)
     if hit and (force or delete):
         action = "Deleting" if delete and not force else "Force-pushing"
-        return f"{action} {', '.join(hit)} rewrites shared history. Push a branch and open a pull request instead."
+        return "deny", (
+            f"{action} {', '.join(hit)} rewrites shared history. Push a branch and open a pull request instead."
+        )
+    if delete:
+        names = sorted(targets if every_target_deleted else deleted)
+        return "ask", f"This push deletes {', '.join(names) or 'a branch'} on the remote."
+    if prune:
+        return "ask", "This push deletes every remote branch its refspecs match that has no local counterpart."
     return None
 
 
@@ -174,26 +225,27 @@ def check_rm(args):
 
 
 def check(command, cwd):
+    """Returns ("deny", reason) for the first command to deny, else ("ask", reason) for the first to ask about."""
+    asked = None
     for words in simple_commands(command):
         words = strip_wrappers(words)
         if not words:
             continue
         name = os.path.basename(words[0])
+        result = None
         if name in SHELLS and "-c" in words[1:]:
             index = words.index("-c")
             if index + 1 < len(words):
-                reason = check(words[index + 1], cwd)
-                if reason:
-                    return reason
+                result = check(words[index + 1], cwd)
         elif name == "git":
-            reason = check_git_push(words[1:], cwd)
-            if reason:
-                return reason
+            result = check_git(words[1:], cwd)
         elif name == "rm":
             reason = check_rm(words[1:])
-            if reason:
-                return reason
-    return None
+            result = ("deny", reason) if reason else None
+        if result and result[0] == "deny":
+            return result
+        asked = asked or result
+    return asked
 
 
 def main():
@@ -202,14 +254,15 @@ def main():
         if payload.get("tool_name") != "Bash":
             return
         command = (payload.get("tool_input") or {}).get("command") or ""
-        reason = check(command, payload.get("cwd") or os.getcwd())
+        result = check(command, payload.get("cwd") or os.getcwd())
     except Exception:  # never break the session because of this hook
         return
-    if reason:
+    if result:
+        decision, reason = result
         json.dump({
             "hookSpecificOutput": {
                 "hookEventName": "PreToolUse",
-                "permissionDecision": "deny",
+                "permissionDecision": decision,
                 "permissionDecisionReason": reason,
             }
         }, sys.stdout)

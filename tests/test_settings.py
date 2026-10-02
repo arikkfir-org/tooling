@@ -54,8 +54,9 @@ FORBIDDEN = [
     "git push --delete origin feature",
     "git push -d origin feature",
     "git push origin --delete feature",
-    "git push origin :feature",
 ]
+# guard.py asks about what a glob can't express: clustered short options (`git switch -qf`), which a glob can't tell
+# from `git switch -c feature`, and `:branch` refspecs, since a rule ending in `:*` is a trailing wildcard (GuardTest).
 
 # Routine commands the bundle exists to run without a prompt.
 ROUTINE = [
@@ -74,8 +75,11 @@ ROUTINE = [
 
 
 def bash_rule(rule):
-    """The regex of a Bash(…) rule: `*` is any text, and a trailing ` *` also matches the bare command."""
+    """The regex of a Bash(…) rule: `*` is any text, a trailing ` *` also matches the bare command, and a trailing
+    `:*` is the same as ` *`."""
     pattern = rule[len("Bash("):-1]
+    if pattern.endswith(":*"):
+        pattern = pattern[:-2] + " *"
     if pattern.endswith(" *") and pattern.count("*") == 1:
         return re.compile(re.escape(pattern[:-2]) + r"(?: .*)?", re.S)
     return re.compile(".*".join(re.escape(part) for part in pattern.split("*")), re.S)
