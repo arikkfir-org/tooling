@@ -1012,6 +1012,9 @@ class FakeAPIHandler(http.server.BaseHTTPRequestHandler):
         path = self.path.partition("?")[0]
         if path == "/moved":
             self.answer(301, b"", Location=f"{self.server.url}/repositories/1/pulls/1")
+        elif path == "/folded":
+            # An obs-fold: a header value continued on the next line.
+            self.answer(200, b"", **{"X-Folded": "first\r\n second"})
         elif path == "/missing":
             self.answer(404, b'{"message": "Not Found"}', **{"Content-Type": "application/json"})
         elif path == "/streamed":
@@ -1133,6 +1136,23 @@ class GitHubProxyTest(unittest.TestCase):
         status, headers, body = self.request("GET", "/api/streamed")
         self.assertEqual((status, body), (200, b"first second"))
         self.assertNotIn("Set-Cookie", headers)
+
+    def test_response_headers_stay_on_one_line(self):
+        with socket.create_connection(("127.0.0.1", self.proxy.server_port), timeout=10) as connection:
+            connection.sendall(b"GET /api/folded HTTP/1.1\r\nHost: x\r\n\r\n")
+            raw = b""
+            while chunk := connection.recv(65536):
+                raw += chunk
+        head = raw.partition(b"\r\n\r\n")[0].split(b"\r\n")
+        self.assertIn(b"X-Folded: first  second", head)
+        self.assertFalse([line for line in head[1:] if b":" not in line], head)
+
+    def test_unforwardable_requests(self):
+        with socket.create_connection(("127.0.0.1", self.proxy.server_port), timeout=10) as connection:
+            connection.sendall(b"GET /api/repos/o/r\x01 HTTP/1.1\r\nHost: x\r\n\r\n")
+            raw = connection.recv(65536)
+        self.assertTrue(raw.startswith(b"HTTP/1.1 400 "), raw)
+        self.assertEqual(self.api.requests, [])
 
     def test_redirects_stay_on_the_proxy(self):
         status, headers, _ = self.request("GET", "/api/moved")

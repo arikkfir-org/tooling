@@ -69,6 +69,12 @@ def authorization(upstream, token):
     return "Basic " + base64.b64encode(f"x-access-token:{token}".encode()).decode()
 
 
+def one_line(text):
+    """A header name or value on one line. http.server writes headers as they are, so a line break would split the
+    response; a folded value (obs-fold) unfolds to spaces."""
+    return text.replace("\r", "").replace("\n", " ")
+
+
 def local_location(location, bases):
     """Points a redirect to GitHub back at the proxy, so that following it keeps the token."""
     for prefix, base in bases.items():
@@ -138,6 +144,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
         headers["Authorization"] = auth
         try:
             connection.request(self.command, url.path + target, body=body, headers=headers)
+        except (ValueError, http.client.InvalidURL) as error:
+            # A path or header value http.client won't send, such as a control character.
+            connection.close()
+            self.reply(400, f"Unforwardable request: {error}\n")
+            return
+        except (OSError, http.client.HTTPException) as error:
+            connection.close()
+            self.reply(502, f"GitHub is unreachable: {error}\n")
+            return
+        try:
             response = connection.getresponse()
         except (OSError, http.client.HTTPException) as error:
             connection.close()
@@ -154,10 +170,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if name.lower() == "location":
                 value = local_location(value, self.server.bases)
             if name.lower() not in DROPPED_RESPONSE:
-                self.send_header(name, value)
-        length = response.getheader("Content-Length")
-        if length is not None and response.getheader("Transfer-Encoding") is None:
-            self.send_header("Content-Length", length)
+                self.send_header(one_line(name), one_line(value))
+        length = response.getheader("Content-Length", "")
+        if length.isascii() and length.isdigit() and response.getheader("Transfer-Encoding") is None:
+            self.send_header("Content-Length", str(int(length)))
         self.send_header("Connection", "close")
         self.end_headers()
         if self.command == "HEAD" or response.status in (204, 304):
