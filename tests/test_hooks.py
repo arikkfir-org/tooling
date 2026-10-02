@@ -104,6 +104,7 @@ class GuardTest(unittest.TestCase):
 
 class CommitMessageTest(unittest.TestCase):
     LONG_LINE = "this body line goes on and on and on, well past the seventy-two column limit"
+    LONG_SUMMARY = "add a summary that keeps on going and going, well past the seventy-two characters"
     URL = "https://claude.ai/code/session_0123456789abcdefghijklmnopqrstuvwxyz0123456789"
 
     @classmethod
@@ -111,7 +112,10 @@ class CommitMessageTest(unittest.TestCase):
         cls.tmp = tempfile.mkdtemp()
         for name, remote in (
             ("org", "https://github.com/arikkfir-org/tooling"),
+            ("org-ssh", "git@github.com:arikkfir-org/tooling.git"),
             ("other", "https://github.com/someone-else/tooling"),
+            ("other-host", "https://gitlab.com/arikkfir-org/tooling"),
+            ("look-alike-host", "https://notgithub.com/arikkfir-org/tooling"),
             ("local", None),
         ):
             path = os.path.join(cls.tmp, name)
@@ -149,7 +153,7 @@ class CommitMessageTest(unittest.TestCase):
             ('git commit -m "fix(gke): close ENG-12"', "org"),
             ('git commit -m "feat!: drop the v1 API"', "org"),
             ('git commit -m "feat: drop the v1 API" -m "BREAKING CHANGE: callers move to v2"', "org"),
-            ("git commit -m \"feat(docs-site): pipelines that check and publish every repository's docs site\"", "org"),
+            (f'git commit -m "feat: {self.LONG_SUMMARY}"', "org"),
             (f'git commit -m "feat: add a thing" -m "{self.LONG_LINE}"', "org"),
             ("git commit -am 'Fix the thing'", "org"),
             ('git commit --message="Update the docs"', "org"),
@@ -160,6 +164,7 @@ class CommitMessageTest(unittest.TestCase):
             ('git -C ../org commit -m "add a thing"', "other"),
             ('cd ../org && git commit -m "add a thing"', "other"),
             ("bash -c 'git commit -m \"add a thing\"'", "org"),
+            ('git commit -m "add a thing"', "org-ssh"),
         ]:
             with self.subTest(command=command, cwd=cwd):
                 self.assertEqual(self.decide(command, cwd), "deny")
@@ -169,6 +174,8 @@ class CommitMessageTest(unittest.TestCase):
             ('git commit -m "feat: add a thing"', "org"),
             ('git commit -m "fix(gke): pin the node pool version" -m "The upgrade broke it."', "org"),
             ("git commit -m \"docs(hub): Tekton's default ServiceAccount has no Google Cloud role\"", "org"),
+            # A long type and scope may take the subject past 72 columns; only the summary is limited.
+            ('git commit -m "feat(kubernetes-platform): add resource requests and memory limits to every task"', "org"),
             ('git commit -m "feat!: drop the v1 API" -m "BREAKING CHANGE: callers move to v2"', "org"),
             (self.heredoc(f"feat: add a thing\n\nWhy it matters.\n\nSession: {self.URL}"), "org"),
             ("git commit -F - <<'EOF'\nci: run the tests\nEOF", "org"),
@@ -181,6 +188,8 @@ class CommitMessageTest(unittest.TestCase):
             ('git commit -m "fix: bump to $VERSION"', "org"),
             ("git commit -F missing.txt", "org"),
             ('git commit -m "add a thing"', "other"),
+            ('git commit -m "add a thing"', "other-host"),
+            ('git commit -m "add a thing"', "look-alike-host"),
             ('git commit -m "add a thing"', "local"),
             ("echo 'git commit -m \"add a thing\"'", "org"),
             ('git log --grep "commit"', "org"),

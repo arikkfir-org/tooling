@@ -3,10 +3,12 @@
 of the house (CONTRIBUTING.md in arikkfir-org/docs, "Commit messages"):
 
   * the subject is `<type>(<scope>)!: <summary>`, with a type from TYPES
-  * the summary has no trailing period and no issue key, and doesn't start with a capitalized verb ("Add", "Fix", …)
+  * the summary is at most 72 characters, has no trailing period and no issue key, and doesn't start with a
+    capitalized verb ("Add", "Fix", …)
   * `!` comes with a `BREAKING CHANGE:` footer, and the footer with `!`
   * a blank line separates the subject from the body
-  * no line is longer than 72 columns, except one holding a URL or no spaces at all: those can't be wrapped
+  * no body or footer line is longer than 72 columns, except one holding a URL or no spaces at all: those can't be
+    wrapped
 
 Only messages given on the command line are checked: -m/--message, also as a heredoc, and -F/--file. A commit that
 reuses a message (--amend without -m, -C, --fixup, …), git's own Merge/Revert/fixup! subjects, a message with shell
@@ -39,7 +41,7 @@ CAPITALIZED_VERBS = {
     "Refactor", "Remove", "Rename", "Replace", "Restore", "Run", "Set", "Simplify", "Support", "Switch", "Update",
     "Updated", "Updates", "Use",
 }
-ORGANIZATION_REMOTE = re.compile(r"[/:]arikkfir-org/[^/\s]+?(?:\.git)?/?$")
+ORGANIZATION_REMOTE = re.compile(r"(?:^|[/@])github\.com[/:]arikkfir-org/[^/\s]+?(?:\.git)?/?$")
 # Options that make git take the message from somewhere else than the command line.
 REUSED = ("-C", "-c", "--reuse-message", "--reedit-message", "--fixup", "--squash")
 # Claude's usual form: -m "$(cat <<'EOF' … EOF )". A quoted delimiter means the body is not expanded.
@@ -174,6 +176,8 @@ def problems(message):
         if match["type"] not in TYPES:
             found.append(f"`{match['type']}` isn't a commit type; use one of: {', '.join(TYPES)}")
         summary = match["summary"]
+        if len(summary) > LIMIT:
+            found.append(f"the summary is {len(summary)} characters, over {LIMIT}")
         if summary.endswith("."):
             found.append("the summary ends with a period")
         if ISSUE_KEY.search(summary):
@@ -188,7 +192,7 @@ def problems(message):
             found.append("a `BREAKING CHANGE:` footer needs `!` after the type or scope")
     if len(lines) > 1 and lines[1]:
         found.append("there is no blank line between the subject and the body")
-    for number, line in enumerate(lines, 1):
+    for number, line in enumerate(lines[1:], 2):
         if len(line) > LIMIT and "://" not in line and " " in line.strip():
             found.append(f"line {number} is {len(line)} columns, over {LIMIT}: {line[:40]}…")
     return found
