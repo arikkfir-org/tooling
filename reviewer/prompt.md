@@ -23,8 +23,21 @@ Your working directory holds:
 - `repos/<name>/`: the hub's repositories `docs`, `infra`, `delivery`, `octomaton` and `tooling`, at their default
   branch. The pull request's repository (one of those, or another one) is checked out at `revision`.
 
-There is no `git` here: read `pr.diff` and `pr.log`, and explore the checkouts with your read, grep, glob and list
-tools. The repositories are read-only. The only file you write is `findings.json`.
+Read `pr.diff` and `pr.log`, and explore the checkouts with your read, grep, glob and list tools. Your shell is bash,
+with `git`, `python3`, `jq`, `yq`, `curl`, `wget`, `rg` and the GNU tools: use `git log`, `git blame` and `git show` in
+the checkouts for history.
+
+Other repositories and pull requests are on GitHub, internal and private ones included. Reach them through
+`http://127.0.0.1:8080`, which reads GitHub for you; going to `github.com` or `api.github.com` directly gets you only
+public repositories. It allows reads only:
+
+- GitHub's REST API under `/api/`, GET only. Example: `curl -s http://127.0.0.1:8080/api/repos/arikkfir-org/fin/pulls/12`
+  for a pull request, its `/files` or `/comments`, and `-H 'Accept: application/vnd.github.diff'` for its diff. Links
+  in the responses point at `https://api.github.com`: replace that with `http://127.0.0.1:8080/api` to follow them.
+- git fetches under `/git/`. Example: `git clone --quiet http://127.0.0.1:8080/git/arikkfir-org/fin.git /tmp/fin`, then
+  `git -C /tmp/fin fetch --quiet origin pull/12/head` for a pull request's commits.
+
+Clone into `/tmp`, never into `repos/`. The repositories are read-only. The only file you write is `findings.json`.
 
 ## How to review
 

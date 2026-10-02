@@ -1,8 +1,9 @@
 # The pull request reviewer (https://github.com/arikkfir-org/docs/blob/main/hub/designs/pr-reviewer.md). Octomaton runs
 # it when a review is requested from arikkfir-reviewer, reading this file at tooling's default branch for every
-# repository. It sets spec.params and binds workspace github-token, a read-only installation token for the pull
-# request's repository. setup puts the repositories and pr.json on the volume, review has opencode write findings.json,
-# and report posts them as one review by arikkfir-reviewer.
+# repository. It sets spec.params and binds workspace github-token, an installation token that reads the code and pull
+# requests of every repository of the organization. setup puts the repositories and pr.json on the volume, review has
+# opencode write findings.json (its github sidecar serves GitHub to the model with the token), and report posts them as
+# one review by arikkfir-reviewer.
 apiVersion: tekton.dev/v1
 kind: PipelineRun
 metadata:
@@ -38,7 +39,8 @@ spec:
       enableServiceLinks: false
   # Reserved once for all of a task's steps (step-level requests would add up as if the steps ran at once). setup
   # clones up to six repositories and diffs one. review runs opencode, a Bun process that holds the whole session and
-  # runs ripgrep over the clones, while the model itself runs at DeepSeek. report only calls GitHub's API.
+  # runs ripgrep over the clones, while the model itself runs at DeepSeek; its github sidecar has its own resources.
+  # report only calls GitHub's API.
   taskRunSpecs:
     - pipelineTaskName: setup
       computeResources:
@@ -190,9 +192,38 @@ spec:
         workspaces:
           - name: shared
             workspace: shared
+          - name: github-token
+            workspace: github-token
         taskSpec:
           workspaces:
             - name: shared
+            - name: github-token
+          # The token is the github sidecar's alone: a workspace a sidecar names is mounted only there (Tekton's
+          # isolated workspaces, a beta feature; without it the run is refused). The model reaches GitHub through the
+          # sidecar on 127.0.0.1:8080 (reviewer/github_proxy.py), never with the token.
+          sidecars:
+            - name: github
+              image: me-west1-docker.pkg.dev/arikkfir/images/reviewer:PENDING
+              workspaces:
+                - name: github-token
+                  mountPath: /workspace/github-token
+              computeResources:
+                requests:
+                  cpu: 50m
+                  memory: 64Mi
+                limits:
+                  memory: 256Mi
+              # The steps start once it answers.
+              readinessProbe:
+                exec:
+                  command: [curl, --fail, --silent, --output, /dev/null, "http://127.0.0.1:8080/healthz"]
+                periodSeconds: 2
+              script: |
+                #!/bin/sh
+                set -eu
+                # Its own copy of tooling's default branch, as report's: the model can rewrite anything on the volume.
+                git clone --quiet --depth 1 https://github.com/arikkfir-org/tooling.git /tmp/tooling
+                exec python3 /tmp/tooling/reviewer/github_proxy.py --token-file /workspace/github-token/token
           stepTemplate:
             workingDir: $(workspaces.shared.path)
             env:
@@ -225,10 +256,15 @@ spec:
                 value: "1"
           steps:
             - name: review
-              image: ghcr.io/anomalyco/opencode:1.18.33@sha256:ee31dff80f8347b4705317de808b01fce1cfbf35cff560ddc573cda9718be0f7
+              image: me-west1-docker.pkg.dev/arikkfir/images/reviewer:PENDING
               script: |
                 #!/bin/sh
                 set -eu
+                # The token is the github sidecar's alone: never run the model where it can read it.
+                if [ -e /workspace/github-token ]; then
+                  echo "The GitHub token is mounted in this step; refusing to run the model." >&2
+                  exit 1
+                fi
                 rm -f findings.json .review/errors.txt
                 # opencode installs its plugin package into its config directory unless node_modules exists and
                 # package-lock.json lists the package (Npm.install in 1.18.33).
@@ -243,10 +279,15 @@ spec:
                 set -eu
                 python3 .review/findings.py check --state pr.json --findings findings.json --errors .review/errors.txt
             - name: fix
-              image: ghcr.io/anomalyco/opencode:1.18.33@sha256:ee31dff80f8347b4705317de808b01fce1cfbf35cff560ddc573cda9718be0f7
+              image: me-west1-docker.pkg.dev/arikkfir/images/reviewer:PENDING
               script: |
                 #!/bin/sh
                 set -eu
+                # The token is the github sidecar's alone: never run the model where it can read it.
+                if [ -e /workspace/github-token ]; then
+                  echo "The GitHub token is mounted in this step; refusing to run the model." >&2
+                  exit 1
+                fi
                 if [ ! -s .review/errors.txt ]; then
                   echo "findings.json is valid; nothing to fix."
                   exit 0
