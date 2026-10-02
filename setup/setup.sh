@@ -29,10 +29,15 @@ tar -xzf "${work}/bundle.tar.gz" -C "${work}" || fail "could not extract the bun
 src="${work}/claude"
 
 mkdir -p "${config_dir}/hooks"
+
+# bundle.py runs this script in live sessions, so installs may overlap: they take turns, holding the lock until exit.
+exec 9> "${config_dir}/hooks/.arikkfir.lock"
+flock -w 60 9 || fail "could not lock ${config_dir}/hooks/.arikkfir.lock"
+
 install -m 0644 "${src}/CLAUDE.md" "${config_dir}/CLAUDE.md"
 
 # The bundle owns hooks/arikkfir entirely, so hooks removed from the bundle disappear here too. The new hooks are staged
-# and swapped in, because bundle.py runs this script in live sessions, whose hooks may fire meanwhile.
+# and swapped in, so a hook that fires meanwhile finds the old set or the new one.
 hooks="${config_dir}/hooks/arikkfir"
 rm -rf "${hooks}.new" "${hooks}.old"
 mkdir -p "${hooks}.new"

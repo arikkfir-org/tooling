@@ -36,8 +36,8 @@ fails it warns and exits 0, so a broken download never blocks a session; set `AR
 The environment runs its setup script once and starts later sessions from a snapshot of the result for about seven
 days, and a resumed session skips it too. So `setup.sh` records the bundle it installed in `hooks/arikkfir/.bundle`, and
 at every session start, resume and compaction `bundle.py` runs the published `setup.sh` in the background when it is
-pinned to another bundle (log: `/tmp/arikkfir-claude.log`). Hooks and settings apply at once; Claude Code reads
-`CLAUDE.md` again at the next compaction or resume.
+pinned to another bundle (log: `/tmp/arikkfir-claude.log`). Installs take turns under a lock and swap the hooks in
+whole. Hooks and settings apply at once; Claude Code reads `CLAUDE.md` again at the next compaction or resume.
 
 ### Publishing
 

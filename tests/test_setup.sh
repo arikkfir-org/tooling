@@ -42,6 +42,14 @@ before="$(snapshot "$work/fresh")"
 ARIKKFIR_CLAUDE_STRICT=1 install_into "$work/fresh"
 [[ "$before" == "$(snapshot "$work/fresh")" ]] || fail "second run changed the installation"
 
+# Concurrent installs take turns: each leaves a complete hooks/arikkfir behind, and no staging directories.
+for round in 1 2 3; do
+  pids=()
+  for _ in $(seq 8); do ARIKKFIR_CLAUDE_STRICT=1 install_into "$work/concurrent$round" > /dev/null & pids+=($!); done
+  for pid in "${pids[@]}"; do wait "$pid" || fail "a concurrent install failed"; done
+  [[ "$(snapshot "$work/concurrent$round")" == "$before" ]] || fail "concurrent installs left a broken installation"
+done
+
 # bundle.py leaves the published bundle alone, and reinstalls it over a different one.
 refresh() {
   CLAUDE_CODE_REMOTE=true CLAUDE_CONFIG_DIR="$1" ARIKKFIR_CLAUDE_BASE_URL="http://127.0.0.1:${port}" TMPDIR="$work" \
