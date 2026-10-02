@@ -203,7 +203,7 @@ spec:
           # sidecar on 127.0.0.1:8080 (reviewer/github_proxy.py), never with the token.
           sidecars:
             - name: github
-              image: me-west1-docker.pkg.dev/arikkfir/images/reviewer:PENDING
+              image: me-west1-docker.pkg.dev/arikkfir/images/reviewer:c63d03b@sha256:dd2de95039d7990344dc6451c533974cae82ae1fea884136cedc7ab0b1478cc9
               workspaces:
                 - name: github-token
                   mountPath: /workspace/github-token
@@ -256,7 +256,7 @@ spec:
                 value: "1"
           steps:
             - name: review
-              image: me-west1-docker.pkg.dev/arikkfir/images/reviewer:PENDING
+              image: me-west1-docker.pkg.dev/arikkfir/images/reviewer:c63d03b@sha256:dd2de95039d7990344dc6451c533974cae82ae1fea884136cedc7ab0b1478cc9
               script: |
                 #!/bin/sh
                 set -eu
@@ -279,7 +279,7 @@ spec:
                 set -eu
                 python3 .review/findings.py check --state pr.json --findings findings.json --errors .review/errors.txt
             - name: fix
-              image: me-west1-docker.pkg.dev/arikkfir/images/reviewer:PENDING
+              image: me-west1-docker.pkg.dev/arikkfir/images/reviewer:c63d03b@sha256:dd2de95039d7990344dc6451c533974cae82ae1fea884136cedc7ab0b1478cc9
               script: |
                 #!/bin/sh
                 set -eu
