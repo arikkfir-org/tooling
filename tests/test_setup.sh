@@ -36,9 +36,31 @@ import json, sys
 installed, bundled = (json.load(open(p)) for p in sys.argv[1:3])
 assert installed == bundled
 PYTHON
+sha="$(sed -n 's/^bundle_sha256="\(.*\)"$/\1/p' dist/setup.sh)"
+[[ "$(cat "$work/fresh/hooks/arikkfir/.bundle")" == "$sha" ]] || fail "installed bundle not recorded"
 before="$(snapshot "$work/fresh")"
 ARIKKFIR_CLAUDE_STRICT=1 install_into "$work/fresh"
 [[ "$before" == "$(snapshot "$work/fresh")" ]] || fail "second run changed the installation"
+
+# Concurrent installs take turns: each leaves a complete hooks/arikkfir behind, and no staging directories.
+for round in 1 2 3; do
+  pids=()
+  for _ in $(seq 8); do ARIKKFIR_CLAUDE_STRICT=1 install_into "$work/concurrent$round" > /dev/null & pids+=($!); done
+  for pid in "${pids[@]}"; do wait "$pid" || fail "a concurrent install failed"; done
+  [[ "$(snapshot "$work/concurrent$round")" == "$before" ]] || fail "concurrent installs left a broken installation"
+done
+
+# bundle.py leaves the published bundle alone, and reinstalls it over a different one.
+refresh() {
+  CLAUDE_CODE_REMOTE=true CLAUDE_CONFIG_DIR="$1" ARIKKFIR_CLAUDE_BASE_URL="http://127.0.0.1:${port}" TMPDIR="$work" \
+    python3 "$1/hooks/arikkfir/bundle.py" < /dev/null
+}
+refresh "$work/fresh"
+[[ "$before" == "$(snapshot "$work/fresh")" ]] || fail "bundle.py changed the current bundle"
+echo "0000000000000000000000000000000000000000000000000000000000000000" > "$work/fresh/hooks/arikkfir/.bundle"
+rm "$work/fresh/CLAUDE.md"
+refresh "$work/fresh"
+[[ "$before" == "$(snapshot "$work/fresh")" ]] || fail "bundle.py did not reinstall the published bundle"
 
 # Existing settings are kept and bundle values win; stale bundle hooks go, foreign hooks stay.
 mkdir -p "$work/existing/hooks/arikkfir" "$work/existing/hooks/mine"
@@ -60,7 +82,7 @@ cp -r dist "$work/tampered"
 for bundle in "$work"/tampered/bundles/*.tar.gz; do printf 'x' >> "$bundle"; done
 serve "$work/tampered"
 if ARIKKFIR_CLAUDE_STRICT=1 install_into "$work/strict" 2> /dev/null; then fail "strict mode accepted a tampered bundle"; fi
-install_into "$work/lenient" 2> /dev/null || fail "default mode failed instead of warning"
+ARIKKFIR_CLAUDE_STRICT=0 install_into "$work/lenient" 2> /dev/null || fail "default mode failed instead of warning"
 [[ ! -e "$work/lenient/CLAUDE.md" ]] || fail "tampered bundle was installed"
 
 echo "setup.sh tests passed"

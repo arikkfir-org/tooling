@@ -18,6 +18,7 @@ A user-level configuration installed into `~/.claude` of every Claude Code on th
 | [`claude/hooks/git_hooks.py`](claude/hooks/git_hooks.py) | `SessionStart`, and `PostToolUse` after `register_repo_root`: points each `arikkfir-org` repository that commits hooks in `.githooks/` at them (`core.hooksPath`), so they run in cloud sessions too; any other repository's hooks stay off |
 | [`claude/hooks/pull_request.py`](claude/hooks/pull_request.py) | `PostToolUse` (`create_pull_request`): after opening an `arikkfir-org` pull request, reminds the session to request `arikkfir-reviewer` and to link the Linear issue and design |
 | [`claude/hooks/dockerd.py`](claude/hooks/dockerd.py) | `SessionStart`: in cloud sessions, starts the Docker daemon in the background, pulling from Docker Hub through `mirror.gcr.io` |
+| [`claude/hooks/bundle.py`](claude/hooks/bundle.py) | `SessionStart` (async): in cloud sessions, installs the published bundle when it isn't the one installed, so sessions started from a cached environment or resumed after idling catch up |
 
 ### Using it
 
@@ -31,6 +32,12 @@ curl -fsSL https://storage.googleapis.com/arikkfir-claude/setup.sh | bash
 `${CLAUDE_CONFIG_DIR:-~/.claude}`: `CLAUDE.md` is replaced, hooks live in `hooks/arikkfir/` (replaced as a whole), and
 `settings.json` is merged with any existing settings (bundle values win). Running it again changes nothing. If anything
 fails it warns and exits 0, so a broken download never blocks a session; set `ARIKKFIR_CLAUDE_STRICT=1` to fail instead.
+
+The environment runs its setup script once and starts later sessions from a snapshot of the result for about seven
+days, and a resumed session skips it too. So `setup.sh` records the bundle it installed in `hooks/arikkfir/.bundle`, and
+at every session start, resume and compaction `bundle.py` runs the published `setup.sh` in the background when it is
+pinned to another bundle (log: `/tmp/arikkfir-claude.log`). Installs take turns under a lock and swap the hooks in
+whole. Hooks and settings apply at once; Claude Code reads `CLAUDE.md` again at the next compaction or resume.
 
 ### Publishing
 
