@@ -1,10 +1,15 @@
+import importlib.util
+import io
 import json
 import os
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
+from unittest import mock
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 GUARD = os.path.join(ROOT, "claude", "hooks", "guard.py")
@@ -64,6 +69,102 @@ class AddRepoTest(unittest.TestCase):
 
     def test_garbage_input_is_ignored(self):
         result = subprocess.run([sys.executable, self.SCRIPT], input="[]", capture_output=True, text=True, check=True)
+
+
+class DockerdTest(unittest.TestCase):
+    SCRIPT = os.path.join(ROOT, "claude", "hooks", "dockerd.py")
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.tmp)
+        spec = importlib.util.spec_from_file_location("dockerd_hook", self.SCRIPT)
+        self.hook = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.hook)
+        # A dockerd that only records that it was started.
+        self.started = os.path.join(self.tmp, "started")
+        self.hook.DOCKERD = os.path.join(self.tmp, "dockerd")
+        with open(self.hook.DOCKERD, "w") as f:
+            f.write(f"#!/bin/sh\ntouch '{self.started}'\n")
+        os.chmod(self.hook.DOCKERD, 0o755)
+        self.hook.DAEMON_JSON = os.path.join(self.tmp, "etc", "docker", "daemon.json")
+        self.hook.SOCKET = os.path.join(self.tmp, "docker.sock")
+        self.hook.LOG = os.path.join(self.tmp, "dockerd.log")
+
+    def run_main(self, remote="true"):
+        output = io.StringIO()
+        popen = subprocess.Popen
+
+        def started_and_awaited(*args, **kwargs):
+            # The daemon outlives the hook: wait for the fake one before cleanup deletes the directory it writes to.
+            process = popen(*args, **kwargs)
+            self.addCleanup(process.wait, 5)
+            return process
+
+        with mock.patch.dict(os.environ, {"CLAUDE_CODE_REMOTE": remote}), mock.patch("sys.stdout", output), \
+                mock.patch.object(self.hook.subprocess, "Popen", started_and_awaited):
+            self.hook.main()
+        return output.getvalue()
+
+    def was_started(self):
+        for _ in range(50):
+            if os.path.exists(self.started):
+                return True
+            time.sleep(0.05)
+        return False
+
+    def daemon_json(self):
+        with open(self.hook.DAEMON_JSON) as f:
+            return json.load(f)
+
+    def test_starts_the_daemon_with_the_mirror(self):
+        output = json.loads(self.run_main())
+        self.assertIn("mirror.gcr.io", output["hookSpecificOutput"]["additionalContext"])
+        self.assertTrue(self.was_started())
+        self.assertEqual(self.daemon_json(), {"registry-mirrors": ["https://mirror.gcr.io"]})
+
+    def test_keeps_the_existing_daemon_settings(self):
+        os.makedirs(os.path.dirname(self.hook.DAEMON_JSON))
+        with open(self.hook.DAEMON_JSON, "w") as f:
+            json.dump({"debug": True, "registry-mirrors": ["https://mirror.example"]}, f)
+        self.run_main()
+        mirrors = ["https://mirror.example", "https://mirror.gcr.io"]
+        self.assertEqual(self.daemon_json(), {"debug": True, "registry-mirrors": mirrors})
+        self.run_main()
+        self.assertEqual(self.daemon_json()["registry-mirrors"].count("https://mirror.gcr.io"), 1)
+
+    def test_leaves_an_unreadable_daemon_json_alone(self):
+        os.makedirs(os.path.dirname(self.hook.DAEMON_JSON))
+        with open(self.hook.DAEMON_JSON, "w") as f:
+            f.write("{not json")
+        output = json.loads(self.run_main())
+        self.assertNotIn("mirror.gcr.io", output["hookSpecificOutput"]["additionalContext"])
+        with open(self.hook.DAEMON_JSON) as f:
+            self.assertEqual(f.read(), "{not json")
+
+    def test_starts_the_daemon_when_daemon_json_cannot_be_written(self):
+        with open(os.path.join(self.tmp, "etc"), "w"):
+            pass  # a file where /etc/docker should be: the write fails, even for root
+        output = json.loads(self.run_main())
+        self.assertTrue(self.was_started())
+        self.assertNotIn("mirror.gcr.io", output["hookSpecificOutput"]["additionalContext"])
+
+    def test_leaves_a_running_daemon_alone(self):
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as server:
+            server.bind(self.hook.SOCKET)
+            server.listen()
+            self.assertEqual(self.run_main(), "")
+        self.assertFalse(os.path.exists(self.started))
+        self.assertFalse(os.path.exists(self.hook.DAEMON_JSON))
+
+    def test_does_nothing_outside_cloud_sessions(self):
+        self.assertEqual(self.run_main(remote=""), "")
+        self.assertFalse(os.path.exists(self.hook.DAEMON_JSON))
+        result = subprocess.run(
+            [sys.executable, self.SCRIPT], input="{}", capture_output=True, text=True, check=True,
+            env={**os.environ, "CLAUDE_CODE_REMOTE": ""},
+        )
+
+
         self.assertEqual(result.stdout, "")
 
 
