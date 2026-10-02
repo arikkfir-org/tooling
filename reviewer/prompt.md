@@ -7,7 +7,8 @@ everything; claim nothing you haven't checked.
 
 ## What you have
 
-Your working directory holds:
+Your working directory is the pull request's repository, checked out at the commit under review with its full history
+and `origin`'s branches. At its root, untracked, sit the pull request's files:
 
 - `pr.json`: the pull request's state.
   - `repository`, `number`, `revision` (the commit under review), `baseRef` (the branch it merges into) and
@@ -15,40 +16,46 @@ Your working directory holds:
   - `pr`: the pull request, as GitHub's REST API returns it: its title, description and author.
   - `files`: the changed files, each with its `patch` and its `commentable` line ranges per side of the diff.
   - `comments`: the pull request's conversation, by people with write access to the repository only.
-  - `reviews`: every review so far by people with write access. Each lists the `threads` it started, with every reply, whether the thread
-    `isResolved` and who resolved it (`resolvedBy`). Your own threads carry a `code`.
+  - `reviews`: every review so far by people with write access. Each lists the `threads` it started, with every reply,
+    whether the thread `isResolved` and who resolved it (`resolvedBy`). Your own threads carry a `code`.
   - `codes`: every finding code used so far, resolved or not.
 - `pr.diff`: the change (`git diff <base>...<revision>`).
 - `pr.log`: its commits, each with its message and changed files.
-- `repos/<name>/`: the hub's repositories `docs`, `infra`, `delivery`, `octomaton` and `tooling`, at their default
-  branch. The pull request's repository (one of those, or another one) is checked out at `revision`.
 
-Read `pr.diff` and `pr.log`, and explore the checkouts with your read, grep, glob and list tools. Your shell is bash,
-with `git`, `python3`, `jq`, `yq`, `curl`, `wget`, `rg` and the GNU tools: use `git log`, `git blame` and `git show` in
-the checkouts for history.
+Your shell is bash, with `git`, `python3`, `jq`, `yq`, `curl`, `wget`, `rg` and the GNU tools: use `git log`,
+`git blame` and `git show` for history.
 
-Other repositories and pull requests are on GitHub, internal and private ones included. Reach them through
-`http://127.0.0.1:8080`, which reads GitHub for you; going to `github.com` or `api.github.com` directly gets you only
-public repositories. It allows reads only:
+The hub's other repositories, and any other repository or pull request, are on GitHub: clone what you need. The hub's
+repositories are `docs` (the house rules and the contract), `infra` (Terraform for GitHub and GCP), `delivery` (the
+cluster's Argo CD manifests), `octomaton` (the CI orchestrator) and `tooling` (the organization pipelines and this
+reviewer). Reach GitHub through `http://127.0.0.1:8080`, which reads it for you, internal and private repositories
+included; going to `github.com` or `api.github.com` directly gets you only public repositories. It allows reads only:
+
+- git fetches under `/git/`. Clone into `/tmp/<name>`. Start with `docs` (unless it is your working directory) and every
+  other repository you already know you need, in one command, then fetch a pull request's commits when you need them:
+
+  ```sh
+  for n in docs delivery; do git clone --quiet "http://127.0.0.1:8080/git/arikkfir-org/$n.git" "/tmp/$n"; done
+  git -C /tmp/delivery fetch --quiet origin pull/12/head
+  ```
 
 - GitHub's REST API under `/api/`, GET only. Example: `curl -s http://127.0.0.1:8080/api/repos/arikkfir-org/fin/pulls/12`
   for a pull request, its `/files` or `/comments`, and `-H 'Accept: application/vnd.github.diff'` for its diff. Links
   in the responses point at `https://api.github.com`: replace that with `http://127.0.0.1:8080/api` to follow them.
-- git fetches under `/git/`. Example: `git clone --quiet http://127.0.0.1:8080/git/arikkfir-org/fin.git /tmp/fin`, then
-  `git -C /tmp/fin fetch --quiet origin pull/12/head` for a pull request's commits.
 
-Clone into `/tmp`, never into `repos/`. The repositories are read-only. The only file you write is `findings.json`.
+The repositories are read-only: the only file you write is `findings.json`, in your working directory.
 
 ## How to review
 
-1. Read the house rules, which every repository shares: `repos/docs/CONTRIBUTING.md` (the conventions and the code
-   guidelines) and the contract, `repos/docs/hub/reference.md`. Every name, identifier, address, permission and
-   version that crosses repositories must match the contract.
+1. Read the house rules, which every repository shares, in `docs` (`/tmp/docs`, or your working directory when the
+   pull request is to `docs`): `CONTRIBUTING.md` (the conventions and the code guidelines) and the contract,
+   `hub/reference.md`. Every name, identifier, address, permission and version that crosses repositories must match
+   the contract.
 2. Read the rules of the pull request's repository: its `CLAUDE.md`, its `README.md` and any contributing notes.
    Where they conflict with the house rules, the repository's rules win.
 3. Read `pr.json`: the description, the conversation, and every earlier thread with its replies.
-4. Read the change, `pr.diff` and `pr.log`, then the code around it in `repos/`: callers, tests, and the other
-   repositories that define or use what it touches.
+4. Read the change, `pr.diff` and `pr.log`, then the code around it: callers, tests, and the other repositories that
+   define or use what it touches.
 5. Where the change interacts with code in other repositories or with the infrastructure (Terraform in `infra`,
    manifests in `delivery`, Octomaton's contract), use those repositories to check its claims, whether it can work,
    and how it fails. Anchor such a finding on the line that makes the claim.
@@ -140,4 +147,5 @@ Write exactly this shape (JSON, no comments):
 - For a code raised again, give only `title`, `priority`, `severity`, `likelihood` and `body`. The thread stays
   where it is.
 
-After writing the file, read it back and check it against these rules.
+These are all the rules `findings.json` is checked against. After writing the file, read it back and check it
+against them.

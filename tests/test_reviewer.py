@@ -882,7 +882,8 @@ class FakeGitHandler(http.server.BaseHTTPRequestHandler):
 
 class LocalGitHubTest(unittest.TestCase):
     """A local github.com, where the hub's five repositories are public and fin is internal, each with pull request #7,
-    and a workspace for each test."""
+    and a workspace for each test. Two more repositories have the reviewer's own files at their root: pull request #7
+    of arikkfir-org/clash adds a pr.json, and that of arikkfir-org/link a pr.diff linking into .review/."""
 
     HUB = ["docs", "infra", "delivery", "octomaton", "tooling"]
     TOKEN = "test-installation-token-" + "0" * 40  # long enough for base64 to wrap the credentials
@@ -894,6 +895,8 @@ class LocalGitHubTest(unittest.TestCase):
         cls.env = {"PATH": os.environ["PATH"], "HOME": tmp, "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull,
                    "GIT_TERMINAL_PROMPT": "0"}
         cls.heads = {f"arikkfir-org/{name}": cls.repository(tmp, name) for name in cls.HUB + ["fin"]}
+        cls.heads["arikkfir-org/clash"] = cls.repository(tmp, "clash", clash="file")
+        cls.heads["arikkfir-org/link"] = cls.repository(tmp, "link", clash="link")
         cls.token_dir = os.path.join(tmp, "github-token")
         os.makedirs(cls.token_dir)
         with open(os.path.join(cls.token_dir, "token"), "w", encoding="utf-8") as f:
@@ -910,7 +913,7 @@ class LocalGitHubTest(unittest.TestCase):
                                *args], env=cls.env, capture_output=True, text=True, check=True).stdout.strip()
 
     @classmethod
-    def repository(cls, tmp, name):
+    def repository(cls, tmp, name, clash=None):
         """Bare repository arikkfir-org/<name>: a commit on main, then pull request #7 on top of it. Returns the pull
         request's head commit."""
         work = os.path.join(tmp, "work", name)
@@ -923,6 +926,11 @@ class LocalGitHubTest(unittest.TestCase):
         cls.git(work, "clone", "--quiet", "--bare", ".", os.path.join(tmp, "github", "arikkfir-org", f"{name}.git"))
         with open(os.path.join(work, "change.txt"), "w", encoding="utf-8") as f:
             f.write("the change\n")
+        if clash == "file":
+            with open(os.path.join(work, "pr.json"), "w", encoding="utf-8") as f:
+                f.write("{}\n")
+        elif clash == "link":
+            os.symlink("../.review/prompt.md", os.path.join(work, "pr.diff"))
         cls.git(work, "add", "--all")
         cls.git(work, "commit", "--quiet", "--message=Change")
         cls.git(work, "push", "--quiet", os.path.join(tmp, "github", "arikkfir-org", f"{name}.git"),
@@ -953,41 +961,59 @@ class LocalGitHubTest(unittest.TestCase):
 class CloneStepTest(LocalGitHubTest):
     """Runs setup's clone step against the local github.com."""
 
-    def clone(self, repository):
+    def clone(self, repository, succeeds=True):
         """Runs the clone step as Tekton would, in the workspace, with github.com pointing at the local server. Returns
         its log."""
         script = step_script("clone").replace("$(workspaces.github-token.path)", self.token_dir)
-        env = {**self.env, "REPOSITORY": repository, "NUMBER": "7", "REVISION": self.heads[repository],
-               "BASE_REF": "main", "REVIEWER": REVIEWER, "GIT_CONFIG_COUNT": "1",
+        env = {**self.env, "REPOSITORY": repository, "NAME": repository.split("/")[1], "NUMBER": "7",
+               "REVISION": self.heads[repository], "BASE_REF": "main", "REVIEWER": REVIEWER, "GIT_CONFIG_COUNT": "1",
                "GIT_CONFIG_KEY_0": f"url.http://127.0.0.1:{self.server.server_port}/.insteadOf",
                "GIT_CONFIG_VALUE_0": "https://github.com/"}
         result = subprocess.run(["sh", "-c", script], cwd=self.workspace, env=env, capture_output=True, text=True)
-        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.returncode == 0, succeeds, result.stderr)
         return result.stdout + result.stderr
 
     def assert_reviewed(self, name):
-        repository = os.path.join(self.workspace, "repos", name)
+        """The pull request's repository is checked out at its head, with pr.diff and pr.log at its root, and only
+        tooling's reviewer/ is beside it, in .review/."""
+        repository = os.path.join(self.workspace, name)
         self.assertEqual(self.git(repository, "rev-parse", "HEAD"), self.heads[f"arikkfir-org/{name}"])
-        with open(os.path.join(self.workspace, "pr.diff"), encoding="utf-8") as f:
+        with open(os.path.join(repository, "pr.diff"), encoding="utf-8") as f:
             self.assertIn("+the change", f.read())
-        with open(os.path.join(self.workspace, "pr.log"), encoding="utf-8") as f:
+        with open(os.path.join(repository, "pr.log"), encoding="utf-8") as f:
             self.assertIn("change.txt", f.read())
-        self.assertTrue(os.path.isfile(os.path.join(self.workspace, ".review", "prompt.md")))
+        self.assertEqual(sorted(os.listdir(self.workspace)), sorted([".review", name]))
+        self.assertEqual(os.listdir(os.path.join(self.workspace, ".review")), ["prompt.md"])
 
     def test_an_internal_repository(self):
         log = self.clone("arikkfir-org/fin")
-        self.assertEqual(self.authorizations(), {**{f"arikkfir-org/{name}": [None] for name in self.HUB},
-                                                 "arikkfir-org/fin": [self.server.authorization]})
+        # Only the pull request's repository, with the token; the reviewer's files from tooling, anonymously.
+        self.assertEqual(self.authorizations(), {"arikkfir-org/fin": [self.server.authorization],
+                                                 "arikkfir-org/tooling": [None]})
         self.assert_reviewed("fin")
         self.assert_no_token(log)
 
     def test_a_hub_repository(self):
         log = self.clone("arikkfir-org/infra")
-        # Cloned anonymously with the hub's other repositories, then the pull request fetched with the token.
-        self.assertEqual(self.authorizations(), {**{f"arikkfir-org/{name}": [None] for name in self.HUB},
-                                                 "arikkfir-org/infra": [None, self.server.authorization]})
+        self.assertEqual(self.authorizations(), {"arikkfir-org/infra": [self.server.authorization],
+                                                 "arikkfir-org/tooling": [None]})
         self.assert_reviewed("infra")
         self.assert_no_token(log)
+
+    def test_tooling_itself(self):
+        # The reviewer's files come from tooling's default branch, cloned apart from the pull request's checkout.
+        log = self.clone("arikkfir-org/tooling")
+        self.assertEqual(self.authorizations(), {"arikkfir-org/tooling": [self.server.authorization, None]})
+        self.assert_reviewed("tooling")
+        self.assert_no_token(log)
+
+    def test_a_repository_with_the_reviewers_files(self):
+        for name, file in (("clash", "pr.json"), ("link", "pr.diff")):
+            with self.subTest(name=name):
+                log = self.clone(f"arikkfir-org/{name}", succeeds=False)
+                self.assertIn(f"arikkfir-org/{name} has a {file} at its root", log)
+                # The link dangles until .review/ exists, and the step stops before writing through it.
+                self.assertFalse(os.path.exists(os.path.join(self.workspace, ".review")))
 
 class FakeAPI(http.server.ThreadingHTTPServer):
     """api.github.com, recording each request (method, path with query, headers, body) and answering per path."""
@@ -1290,7 +1316,8 @@ class GitThroughProxyTest(LocalGitHubTest):
 
 
 class ReviewPipelineRunTest(unittest.TestCase):
-    """The review task: the reviewer image, and the token for the github sidecar alone."""
+    """The review task: the reviewer image, the token for the github sidecar alone, and opencode in the pull request's
+    checkout, configured by nothing in it."""
 
     @classmethod
     def setUpClass(cls):
@@ -1315,32 +1342,64 @@ class ReviewPipelineRunTest(unittest.TestCase):
                 self.assertNotIn("$(workspaces.github-token", script)
         self.assertNotIn("github-token", steps.replace("/workspace/github-token", ""))
 
+    def run_model_step(self, step, mounted):
+        """Runs a model step as Tekton would: in the checkout, with .review/ beside it and opencode faked. Returns the
+        result and opencode's arguments (None when it didn't run)."""
+        with tempfile.TemporaryDirectory() as root:
+            token = os.path.join(root, "workspace", "github-token")
+            if mounted:
+                os.makedirs(token)
+            work, bin_dir, config = (os.path.join(root, name) for name in ("infra", "bin", "config"))
+            os.makedirs(work)
+            os.makedirs(os.path.join(root, ".review"))
+            for name in ("errors.txt", "prompt.md"):
+                with open(os.path.join(root, ".review", name), "w", encoding="utf-8") as f:
+                    f.write("text\n")
+            os.makedirs(bin_dir)
+            with open(os.path.join(bin_dir, "opencode"), "w", encoding="utf-8") as f:
+                f.write('#!/bin/sh\necho "$@" > "$RAN"\n')
+            os.chmod(os.path.join(bin_dir, "opencode"), 0o755)
+            ran = os.path.join(root, "ran")
+            env = {"PATH": f"{bin_dir}:{os.environ['PATH']}", "XDG_CONFIG_HOME": config, "RAN": ran}
+            script = step_script(step).replace("/workspace/github-token", token)
+            result = subprocess.run(["sh", "-c", script], cwd=work, env=env, input="", capture_output=True, text=True)
+            if not os.path.exists(ran):
+                return result, None
+            with open(ran, encoding="utf-8") as f:
+                return result, f.read().split()
+
     def test_the_model_never_runs_where_the_token_is_mounted(self):
         for step in ("review", "fix"):
             for mounted in (True, False):
-                with self.subTest(step=step, mounted=mounted), tempfile.TemporaryDirectory() as root:
-                    token = os.path.join(root, "workspace", "github-token")
-                    if mounted:
-                        os.makedirs(token)
-                    work, bin_dir, config = (os.path.join(root, name) for name in ("work", "bin", "config"))
-                    os.makedirs(os.path.join(work, ".review"))
-                    for name in ("errors.txt", "prompt.md"):
-                        with open(os.path.join(work, ".review", name), "w", encoding="utf-8") as f:
-                            f.write("text\n")
-                    os.makedirs(bin_dir)
-                    with open(os.path.join(bin_dir, "opencode"), "w", encoding="utf-8") as f:
-                        f.write("#!/bin/sh\ntouch \"$RAN\"\n")
-                    os.chmod(os.path.join(bin_dir, "opencode"), 0o755)
-                    ran = os.path.join(root, "ran")
-                    env = {"PATH": f"{bin_dir}:{os.environ['PATH']}", "XDG_CONFIG_HOME": config, "RAN": ran}
-                    script = step_script(step).replace("/workspace/github-token", token)
-                    result = subprocess.run(["sh", "-c", script], cwd=work, env=env, input="", capture_output=True,
-                                            text=True)
-                    self.assertEqual((result.returncode != 0, os.path.exists(ran)), (mounted, not mounted),
-                                     result.stderr)
+                with self.subTest(step=step, mounted=mounted):
+                    result, args = self.run_model_step(step, mounted)
+                    self.assertEqual((result.returncode != 0, args is not None), (mounted, not mounted), result.stderr)
                     if mounted:
                         self.assertIn("refusing to run the model", result.stderr)
 
+    def test_the_model_reasons_at_low_effort(self):
+        for step in ("review", "fix"):
+            with self.subTest(step=step):
+                result, args = self.run_model_step(step, mounted=False)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("--variant low", " ".join(args))
+
+    def test_the_model_works_in_the_checkout(self):
+        self.assertIn("\n          stepTemplate:\n            workingDir: $(workspaces.shared.path)/$(params.name)\n",
+                      self.text)
+        self.assertIn('--findings "$(workspaces.shared.path)/$(params.name)/findings.json"', step_script("report"))
+        self.assertIn('--output "${NAME}/pr.json"', step_script("state"))
+
+    def test_nothing_in_the_checkout_configures_opencode(self):
+        for variable in ("OPENCODE_DISABLE_PROJECT_CONFIG", "OPENCODE_DISABLE_EXTERNAL_SKILLS",
+                         "OPENCODE_DISABLE_CLAUDE_CODE_PROMPT"):
+            self.assertIn(f"- name: {variable}\n                value: \"1\"\n", self.text)
+
+    def test_the_model_runs_no_subagents(self):
+        with open(os.path.join(REVIEWER_DIR, "opencode.json"), encoding="utf-8") as f:
+            permission = json.load(f)["permission"]
+        # opencode applies the last matching rule, and drops a tool whose last rule denies it outright.
+        self.assertEqual(list(permission.items()), [("*", "allow"), ("task", "deny")])
 
 if __name__ == "__main__":
     unittest.main()

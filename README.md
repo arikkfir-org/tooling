@@ -56,15 +56,16 @@ The bundle is public. What guards it:
 
 ## Pull request reviewer
 
-Requesting a review from `arikkfir-reviewer` on a pull request runs an AI review: opencode with DeepSeek reads the pull
-request and the hub's repositories, and `arikkfir-reviewer` posts one review, with a thread per finding. Details are in
-the [design](https://github.com/arikkfir-org/docs/blob/main/hub/designs/pr-reviewer.md).
+Requesting a review from `arikkfir-reviewer` on a pull request runs an AI review: opencode with DeepSeek reviews the
+pull request in its repository's checkout, cloning any other repository it needs, and `arikkfir-reviewer` posts one
+review, with a thread per finding. Details are in the
+[design](https://github.com/arikkfir-org/docs/blob/main/hub/designs/pr-reviewer.md).
 
 | File | Purpose |
 | --- | --- |
 | [`reviewer/pipelinerun.yaml`](reviewer/pipelinerun.yaml) | The PipelineRun: tasks `setup`, `review` and `report` |
 | [`reviewer/prompt.md`](reviewer/prompt.md) | The reviewer's instructions, with the `findings.json` schema |
-| [`reviewer/opencode.json`](reviewer/opencode.json) | opencode's configuration: the model, no sharing, every tool allowed |
+| [`reviewer/opencode.json`](reviewer/opencode.json) | opencode's configuration: the model, no sharing, every tool allowed but subagents |
 | [`reviewer/state.py`](reviewer/state.py) | Writes `pr.json`: the pull request, its files, and the conversation, reviews and threads of people with write access only |
 | [`reviewer/findings.py`](reviewer/findings.py) | Checks `findings.json` against the diff and the earlier findings |
 | [`reviewer/report.py`](reviewer/report.py) | Posts the review as `arikkfir-reviewer`, through [`reviewer/github.py`](reviewer/github.py) |
