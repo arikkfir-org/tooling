@@ -74,7 +74,7 @@ cp -r dist "$work/tampered"
 for bundle in "$work"/tampered/bundles/*.tar.gz; do printf 'x' >> "$bundle"; done
 serve "$work/tampered"
 if ARIKKFIR_CLAUDE_STRICT=1 install_into "$work/strict" 2> /dev/null; then fail "strict mode accepted a tampered bundle"; fi
-install_into "$work/lenient" 2> /dev/null || fail "default mode failed instead of warning"
+ARIKKFIR_CLAUDE_STRICT=0 install_into "$work/lenient" 2> /dev/null || fail "default mode failed instead of warning"
 [[ ! -e "$work/lenient/CLAUDE.md" ]] || fail "tampered bundle was installed"
 
 echo "setup.sh tests passed"
