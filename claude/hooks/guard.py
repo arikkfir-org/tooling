@@ -25,7 +25,18 @@ import sys
 
 PROTECTED_BRANCHES = {"main", "master"}
 SEPARATOR_CHARS = set(";&|()\n")
-WRAPPERS = {"sudo", "env", "nohup", "time", "command", "exec", "nice"}
+WRAPPERS = {"sudo", "env", "nohup", "time", "command", "exec", "nice", "builtin", "noglob"}
+# Wrappers whose options take a value as the next word. Claude Code strips timeout, stdbuf and bare xargs before
+# matching permission rules, so the hook must see through them too.
+WRAPPER_OPTIONS_WITH_VALUE = {"timeout": {"-s", "--signal", "-k", "--kill-after"}, "stdbuf": {"-i", "-o", "-e"}}
+# git push's long options: git accepts any unambiguous prefix of one.
+PUSH_LONG_OPTIONS = (
+    "all", "atomic", "branches", "delete", "dry-run", "exec", "follow-tags", "force", "force-if-includes",
+    "force-with-lease", "ipv4", "ipv6", "mirror", "no-atomic", "no-force-if-includes", "no-force-with-lease",
+    "no-progress", "no-recurse-submodules", "no-signed", "no-thin", "no-verify", "porcelain", "progress", "prune",
+    "push-option", "quiet", "receive-pack", "recurse-submodules", "repo", "set-upstream", "signed", "tags", "thin",
+    "verbose", "verify",
+)
 SHELLS = {"sh", "bash", "zsh", "dash", "ash"}
 GIT_OPTIONS_WITH_VALUE = {"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path"}
 PUSH_OPTIONS_WITH_VALUE = {"-o", "--push-option", "--repo", "--receive-pack", "--exec"}
@@ -60,6 +71,15 @@ def strip_wrappers(words):
             words = words[1:]
             while words and words[0].startswith("-"):
                 words = words[1:]
+        elif head in WRAPPER_OPTIONS_WITH_VALUE:
+            takes_value = WRAPPER_OPTIONS_WITH_VALUE[head]
+            words = words[1:]
+            while words and words[0].startswith("-"):
+                words = words[2:] if words[0] in takes_value else words[1:]
+            if head == "timeout":
+                words = words[1:]  # the duration
+        elif head == "xargs" and len(words) > 1 and not words[1].startswith("-"):
+            words = words[1:]  # only bare xargs, as Claude Code strips it
         else:
             break
     return words
@@ -125,6 +145,16 @@ def switch_loses_work(args):
     return False
 
 
+def push_long_options(word):
+    """The git push long options a word can stand for: its exact name, or every option it abbreviates."""
+    if not word.startswith("--") or word == "--":
+        return set()
+    name = word[2:].split("=", 1)[0]
+    if name in PUSH_LONG_OPTIONS:
+        return {name}
+    return {option for option in PUSH_LONG_OPTIONS if name and option.startswith(name)}
+
+
 def check_git_push(rest, directory):
     force = delete = dry_run = every_branch = prune = False
     positional = []
@@ -135,17 +165,21 @@ def check_git_push(rest, directory):
         if word == "--":
             positional.extend(rest[j + 1:])
             break
-        if word in ("--force", "--mirror") or word.startswith("--force-with-lease") or "f" in flags:
+        # An ambiguous abbreviation counts as every option it could be when that is the riskier reading; git
+        # refuses it anyway.
+        options = push_long_options(word)
+        if options & {"force", "force-with-lease", "mirror"} or "f" in flags:
             force = True
-        if word == "--delete" or "d" in flags:
+        if "delete" in options or "d" in flags:
             delete = True
-        if word == "--dry-run" or "n" in flags:
+        if options == {"dry-run"} or "n" in flags:
             dry_run = True
-        if word in ("--mirror", "--all", "--branches"):
+        if options & {"mirror", "all", "branches"}:
             every_branch = True
-        if word == "--prune":
+        if "prune" in options:
             prune = True
-        if word in PUSH_OPTIONS_WITH_VALUE or "o" in flags:
+        takes_value = len(options) == 1 and options <= {"repo", "receive-pack", "exec", "push-option"}
+        if (takes_value and "=" not in word) or word in PUSH_OPTIONS_WITH_VALUE or "o" in flags:
             j += 1
         elif not word.startswith("-"):
             positional.append(word)

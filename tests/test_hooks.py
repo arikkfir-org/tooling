@@ -57,6 +57,9 @@ class GuardTest(unittest.TestCase):
             ("git push origin :main", "on-feature"),
             ("git push --mirror origin", "on-feature"),
             ("git push --prune origin main", "on-feature"),
+            ("git push --force-w origin main", "on-feature"),
+            ("git push --mirr origin", "on-feature"),
+            ("timeout 30 git push -f origin main", "on-feature"),
             ("git push --prune origin 'refs/heads/*:refs/heads/*' master", "on-feature"),
             ("git push --force", "on-main"),
             ("git push -f origin HEAD", "on-main"),
@@ -94,6 +97,13 @@ class GuardTest(unittest.TestCase):
             ("git -C ../on-main switch --force main", "on-feature"),
             ("git add -A && git switch -qf main", "on-feature"),
             ("bash -c 'git switch -qf main'", "on-feature"),
+            ("git push origin --del feature", "on-feature"),
+            ("git push --pru origin", "on-feature"),
+            ("timeout 30 git switch -qf main", "on-feature"),
+            ("timeout -s KILL 30s git push origin :feature", "on-feature"),
+            ("stdbuf -o L git switch -qf main", "on-feature"),
+            ("xargs git switch -qf", "on-feature"),
+            ("builtin git switch -qf main", "on-feature"),
         ]:
             with self.subTest(command=command, cwd=cwd):
                 self.assertEqual(self.decide(command, cwd), "ask")
@@ -122,6 +132,10 @@ class GuardTest(unittest.TestCase):
             ("git switch --detach main", "on-feature"),
             ("git switch -m main", "on-feature"),
             ("git switch --no-guess main", "on-feature"),
+            ("git push --dry origin :feature", "on-feature"),
+            ("git push --no-force-with-lease origin main", "on-feature"),
+            ("git push --repo origin feature", "on-feature"),
+            ("timeout 30 git status", "on-feature"),
             ("git status && git log --oneline -3", "on-main"),
             ("echo 'git push --force origin main'", "on-feature"),
             ("rm -rf build dist", "on-feature"),
@@ -203,6 +217,7 @@ class CommitMessageTest(unittest.TestCase):
             ('git -C ../org commit -m "add a thing"', "other"),
             ('cd ../org && git commit -m "add a thing"', "other"),
             ("bash -c 'git commit -m \"add a thing\"'", "org"),
+            ('timeout 30 git commit -m "add a thing"', "org"),
             ('git commit -m "add a thing"', "org-ssh"),
         ]:
             with self.subTest(command=command, cwd=cwd):
