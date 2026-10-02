@@ -31,10 +31,15 @@ src="${work}/claude"
 mkdir -p "${config_dir}/hooks"
 install -m 0644 "${src}/CLAUDE.md" "${config_dir}/CLAUDE.md"
 
-# The bundle owns hooks/arikkfir entirely, so hooks removed from the bundle disappear here too.
-rm -rf "${config_dir}/hooks/arikkfir"
-mkdir -p "${config_dir}/hooks/arikkfir"
-install -m 0755 "${src}"/hooks/* "${config_dir}/hooks/arikkfir/"
+# The bundle owns hooks/arikkfir entirely, so hooks removed from the bundle disappear here too. The new hooks are staged
+# and swapped in, because bundle.py runs this script in live sessions, whose hooks may fire meanwhile.
+hooks="${config_dir}/hooks/arikkfir"
+rm -rf "${hooks}.new" "${hooks}.old"
+mkdir -p "${hooks}.new"
+install -m 0755 "${src}"/hooks/* "${hooks}.new/"
+if [[ -e "${hooks}" ]]; then mv "${hooks}" "${hooks}.old"; fi
+mv "${hooks}.new" "${hooks}"
+rm -rf "${hooks}.old"
 
 # Merge into existing settings (bundle values win), atomically.
 python3 - "${config_dir}/settings.json" "${src}/settings.json" <<'PYTHON' || fail "could not merge settings.json"
@@ -59,4 +64,6 @@ with open(target + ".tmp", "w") as f:
 os.replace(target + ".tmp", target)
 PYTHON
 
+# Recorded last, so an install that failed partway is retried by bundle.py.
+echo "${bundle_sha256}" > "${hooks}/.bundle"
 echo "arikkfir-claude: installed bundle ${bundle_sha256:0:12} into ${config_dir}"

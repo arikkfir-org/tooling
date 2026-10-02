@@ -1,3 +1,5 @@
+import functools
+import http.server
 import importlib.util
 import io
 import json
@@ -7,6 +9,7 @@ import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from unittest import mock
@@ -69,6 +72,111 @@ class AddRepoTest(unittest.TestCase):
 
     def test_garbage_input_is_ignored(self):
         result = subprocess.run([sys.executable, self.SCRIPT], input="[]", capture_output=True, text=True, check=True)
+
+
+class BundleTest(unittest.TestCase):
+    SCRIPT = os.path.join(ROOT, "claude", "hooks", "bundle.py")
+    PUBLISHED = "a" * 64
+    INSTALLED = "b" * 64
+
+    class QuietHandler(http.server.SimpleHTTPRequestHandler):
+        def log_message(self, *args):
+            pass
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.tmp)
+        self.site = os.path.join(self.tmp, "site")
+        os.makedirs(self.site)
+        server = http.server.ThreadingHTTPServer(
+            ("127.0.0.1", 0), functools.partial(self.QuietHandler, directory=self.site),
+        )
+        threading.Thread(target=server.serve_forever, args=(0.05,), daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        spec = importlib.util.spec_from_file_location("bundle_hook", self.SCRIPT)
+        self.hook = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.hook)
+        self.hook.BASE_URL = f"http://127.0.0.1:{server.server_address[1]}"
+        self.hook.CONFIG_DIR = os.path.join(self.tmp, "config")
+        self.hook.LOG = os.path.join(self.tmp, "arikkfir-claude.log")
+        self.ran = os.path.join(self.hook.CONFIG_DIR, "ran")
+
+    def publish(self, pin):
+        # A setup.sh that only records that it ran, in the configuration directory and with the base URL it was given.
+        with open(os.path.join(self.site, "setup.sh"), "w") as f:
+            f.write(f'#!/usr/bin/env bash\nbundle_sha256="{pin}"\n'
+                    'echo "${ARIKKFIR_CLAUDE_BASE_URL}" > "${CLAUDE_CONFIG_DIR}/ran"\n')
+
+    def install(self, bundle):
+        os.makedirs(os.path.join(self.hook.CONFIG_DIR, "hooks", "arikkfir"), exist_ok=True)
+        with open(os.path.join(self.hook.CONFIG_DIR, "hooks", "arikkfir", ".bundle"), "w") as f:
+            f.write(bundle + "\n")
+
+    def run_main(self, remote="true"):
+        output = io.StringIO()
+        with mock.patch.dict(os.environ, {"CLAUDE_CODE_REMOTE": remote}), mock.patch("sys.stdout", output):
+            self.hook.main()
+        self.assertEqual(output.getvalue(), "")  # an async hook's output goes nowhere
+
+    def read_log(self):
+        with open(self.hook.LOG) as f:
+            return f.read()
+
+    def test_installs_a_changed_bundle(self):
+        self.publish(self.PUBLISHED)
+        self.install(self.INSTALLED)
+        self.run_main()
+        with open(self.ran) as f:
+            self.assertEqual(f.read().strip(), self.hook.BASE_URL)
+        self.assertIn(f"Replacing bundle {self.INSTALLED[:12]} with {self.PUBLISHED[:12]}", self.read_log())
+
+    def test_installs_when_no_bundle_is_recorded(self):
+        self.publish(self.PUBLISHED)
+        os.makedirs(self.hook.CONFIG_DIR)
+        self.run_main()
+        self.assertTrue(os.path.exists(self.ran))
+        self.assertIn(f"Replacing bundle unknown with {self.PUBLISHED[:12]}", self.read_log())
+
+    def test_leaves_the_current_bundle_alone(self):
+        self.publish(self.PUBLISHED)
+        self.install(self.PUBLISHED)
+        self.run_main()
+        self.assertFalse(os.path.exists(self.ran))
+        self.assertFalse(os.path.exists(self.hook.LOG))
+
+    def test_ignores_a_setup_script_without_a_pin(self):
+        for pin in ("@BUNDLE_SHA256@", "abc", "A" * 64):
+            with self.subTest(pin=pin):
+                self.publish(pin)
+                self.install(self.INSTALLED)
+                self.run_main()
+                self.assertFalse(os.path.exists(self.ran))
+
+    def test_keeps_the_bundle_when_setup_sh_is_unreachable(self):
+        self.install(self.INSTALLED)
+        self.run_main()  # nothing published: 404
+        self.assertIn("Could not refresh the bundle", self.read_log())
+        with socket.socket() as unused:
+            unused.bind(("127.0.0.1", 0))
+            self.hook.BASE_URL = f"http://127.0.0.1:{unused.getsockname()[1]}"
+        self.run_main()  # nothing listening
+        self.assertFalse(os.path.exists(self.ran))
+
+    def test_does_nothing_outside_cloud_sessions(self):
+        self.publish(self.PUBLISHED)
+        self.install(self.INSTALLED)
+        self.run_main(remote="")
+        self.assertFalse(os.path.exists(self.ran))
+        self.assertFalse(os.path.exists(self.hook.LOG))
+
+    def test_garbage_input_is_ignored(self):
+        result = subprocess.run(
+            [sys.executable, self.SCRIPT], input="[]", capture_output=True, text=True, check=True,
+            env={**os.environ, "CLAUDE_CODE_REMOTE": "true", "ARIKKFIR_CLAUDE_BASE_URL": "http://127.0.0.1:9",
+                 "CLAUDE_CONFIG_DIR": self.hook.CONFIG_DIR, "TMPDIR": self.tmp},
+        )
+        self.assertEqual(result.stdout, "")
 
 
 class DockerdTest(unittest.TestCase):
