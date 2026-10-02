@@ -13,6 +13,7 @@ A user-level configuration installed into `~/.claude` of every Claude Code on th
 | [`claude/settings.json`](claude/settings.json) | Registers the hooks |
 | [`claude/hooks/guard.py`](claude/hooks/guard.py) | `PreToolUse` (Bash): denies force-pushes/deletions of `main`/`master` and recursive deletion of `/` or `~` |
 | [`claude/hooks/format.py`](claude/hooks/format.py) | `PostToolUse` (Edit/Write): runs `gofmt` / `terraform fmt` on the written file and tells Claude when it changed |
+| [`claude/hooks/add_repo.py`](claude/hooks/add_repo.py) | `PreToolUse` (`add_repo`, `register_repo_root`): attaches `arikkfir-org` repositories without a prompt; other owners get the normal one |
 
 ### Using it
 
