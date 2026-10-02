@@ -60,6 +60,10 @@ class GuardTest(unittest.TestCase):
             ("git push --force-w origin main", "on-feature"),
             ("git push --mirr origin", "on-feature"),
             ("timeout 30 git push -f origin main", "on-feature"),
+            ("nice -n 10 git push -f origin main", "on-feature"),
+            ("sudo -u root git push -f origin main", "on-feature"),
+            ("env -u HOME git push -f origin main", "on-feature"),
+            ("time -o /dev/null git push -f origin main", "on-feature"),
             ("git push --prune origin 'refs/heads/*:refs/heads/*' master", "on-feature"),
             ("git push --force", "on-main"),
             ("git push -f origin HEAD", "on-main"),
@@ -104,6 +108,9 @@ class GuardTest(unittest.TestCase):
             ("stdbuf -o L git switch -qf main", "on-feature"),
             ("xargs git switch -qf", "on-feature"),
             ("builtin git switch -qf main", "on-feature"),
+            ("nice -n 10 git switch -qf main", "on-feature"),
+            ("nice --adjustment 10 git push origin :feature", "on-feature"),
+            ("exec -a name git switch -qf main", "on-feature"),
         ]:
             with self.subTest(command=command, cwd=cwd):
                 self.assertEqual(self.decide(command, cwd), "ask")

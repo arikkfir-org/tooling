@@ -25,10 +25,22 @@ import sys
 
 PROTECTED_BRANCHES = {"main", "master"}
 SEPARATOR_CHARS = set(";&|()\n")
-WRAPPERS = {"sudo", "env", "nohup", "time", "command", "exec", "nice", "builtin", "noglob"}
-# Wrappers whose options take a value as the next word. Claude Code strips timeout, stdbuf and bare xargs before
-# matching permission rules, so the hook must see through them too.
-WRAPPER_OPTIONS_WITH_VALUE = {"timeout": {"-s", "--signal", "-k", "--kill-after"}, "stdbuf": {"-i", "-o", "-e"}}
+# Wrappers, each with its options that take the next word as their value. Claude Code strips these (and bare xargs)
+# before matching permission rules, so the hook must see through them, values included.
+WRAPPERS = {
+    "sudo": {"-u", "--user", "-g", "--group", "-C", "--close-from", "-D", "--chdir", "-h", "--host", "-p", "--prompt",
+             "-r", "--role", "-t", "--type", "-T", "--command-timeout", "-U", "--other-user"},
+    "env": {"-u", "--unset", "-C", "--chdir"},
+    "nohup": set(),
+    "time": {"-o", "--output", "-f", "--format"},
+    "command": set(),
+    "exec": {"-a"},
+    "nice": {"-n", "--adjustment"},
+    "builtin": set(),
+    "noglob": set(),
+    "timeout": {"-s", "--signal", "-k", "--kill-after"},
+    "stdbuf": {"-i", "-o", "-e"},
+}
 # git push's long options: git accepts any unambiguous prefix of one.
 PUSH_LONG_OPTIONS = (
     "all", "atomic", "branches", "delete", "dry-run", "exec", "follow-tags", "force", "force-if-includes",
@@ -68,11 +80,7 @@ def strip_wrappers(words):
         if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", head):
             words = words[1:]
         elif head in WRAPPERS:
-            words = words[1:]
-            while words and words[0].startswith("-"):
-                words = words[1:]
-        elif head in WRAPPER_OPTIONS_WITH_VALUE:
-            takes_value = WRAPPER_OPTIONS_WITH_VALUE[head]
+            takes_value = WRAPPERS[head]
             words = words[1:]
             while words and words[0].startswith("-"):
                 words = words[2:] if words[0] in takes_value else words[1:]
