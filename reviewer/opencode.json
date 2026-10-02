@@ -5,7 +5,10 @@
   "share": "disabled",
   "autoupdate": false,
   "snapshot": false,
-  "permission": "allow",
+  "permission": {
+    "*": "allow",
+    "task": "deny"
+  },
   "experimental": {
     "continue_loop_on_deny": true
   }

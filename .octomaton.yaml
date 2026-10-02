@@ -36,6 +36,7 @@ organization:
           reviewers: [arikkfir-reviewer]
       params:
         repository: "{{ .Repository.FullName }}"
+        name: "{{ .Repository.Name }}"
         number: "{{ .PullRequest.Number }}"
         revision: "{{ .Revision }}"
         base-ref: "{{ .PullRequest.BaseRef }}"
