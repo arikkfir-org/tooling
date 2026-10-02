@@ -39,7 +39,7 @@ WRAPPERS = {
     "builtin": set(),
     "noglob": set(),
     "timeout": {"-s", "--signal", "-k", "--kill-after"},
-    "stdbuf": {"-i", "-o", "-e"},
+    "stdbuf": {"-i", "--input", "-o", "--output", "-e", "--error"},
 }
 # git push's long options: git accepts any unambiguous prefix of one.
 PUSH_LONG_OPTIONS = (
@@ -83,7 +83,10 @@ def strip_wrappers(words):
             takes_value = WRAPPERS[head]
             words = words[1:]
             while words and words[0].startswith("-"):
-                words = words[2:] if words[0] in takes_value else words[1:]
+                if words[0] == "--":
+                    words = words[1:]
+                    break
+                words = words[2:] if wrapper_option_takes_next(words[0], takes_value) else words[1:]
             if head == "timeout":
                 words = words[1:]  # the duration
         elif head == "xargs" and len(words) > 1 and not words[1].startswith("-"):
@@ -91,6 +94,17 @@ def strip_wrappers(words):
         else:
             break
     return words
+
+
+def wrapper_option_takes_next(word, takes_value):
+    """Tells whether a wrapper's option takes the next word as its value, as getopt_long reads it: a long option by
+    any prefix, a short one at the end of a cluster (earlier in one, the rest of the cluster is its value)."""
+    if word.startswith("--"):
+        return "=" not in word and any(option.startswith(word) for option in takes_value if option.startswith("--"))
+    for index, letter in enumerate(word[1:], start=1):
+        if "-" + letter in takes_value:
+            return index == len(word) - 1
+    return False
 
 
 def short_flags(word):
