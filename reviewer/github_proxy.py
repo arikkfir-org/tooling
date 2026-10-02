@@ -136,7 +136,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         """The request's body, de-chunked, or None. Refuses one larger than MAX_BODY before reading it."""
         too_large = Refusal(413, f"Request bodies are limited to {MAX_BODY} bytes.\n")
         if self.headers.get("Transfer-Encoding", "").lower() == "chunked":
-            parts, total = [], 0
+            # One buffer, not a list of chunks: a million tiny chunks would cost far more than their bytes.
+            body = bytearray()
             while True:
                 size = int(self.rfile.readline(64).split(b";")[0].strip(), 16)
                 if size < 0:
@@ -144,11 +145,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 if size == 0:
                     while self.rfile.readline(1024) not in (b"\r\n", b"\n", b""):
                         pass  # trailers
-                    return b"".join(parts)
-                total += size
-                if total > MAX_BODY:
+                    return bytes(body)
+                if len(body) + size > MAX_BODY:
                     raise too_large
-                parts.append(self.rfile.read(size))
+                body += self.rfile.read(size)
                 self.rfile.readline(64)
         length = int(self.headers.get("Content-Length") or 0)
         if length < 0:

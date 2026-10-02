@@ -14,6 +14,7 @@ import sys
 import tempfile
 import textwrap
 import threading
+import tracemalloc
 import unittest
 import urllib.error
 from unittest import mock
@@ -1170,6 +1171,20 @@ class GitHubProxyTest(unittest.TestCase):
             with self.subTest(name):
                 self.assertTrue(self.raw(request).startswith(b"HTTP/1.1 " + want + b" "))
         self.assertEqual(self.api.requests, [])
+
+    def test_many_small_chunks_stay_small(self):
+        # 200,000 one-byte chunks: the body's memory must follow its bytes, not the number of chunks.
+        count = 200_000
+        request = (b"POST /git/arikkfir-org/fin.git/git-upload-pack HTTP/1.1\r\nHost: x\r\n"
+                   b"Transfer-Encoding: chunked\r\n\r\n" + b"1\r\nx\r\n" * count + b"0\r\n\r\n")
+        tracemalloc.start()
+        self.addCleanup(tracemalloc.stop)
+        tracemalloc.reset_peak()
+        response = self.raw(request)
+        _, peak = tracemalloc.get_traced_memory()
+        self.assertTrue(response.startswith(b"HTTP/1.1 200 "), response[:100])
+        self.assertEqual(self.api.requests[-1][3], b"x" * count)
+        self.assertLess(peak, 4 * 1024 * 1024)
 
     def test_a_stalled_body_times_out(self):
         proxy = github_proxy.Server(self.token_file, port=0, api=self.api.url, git=self.api.url, log=self.log,
