@@ -3,11 +3,26 @@
   "hooks": {
     "PreToolUse": [
       {
+        "matcher": "^mcp__(claude-code-remote|Claude_Code_Remote)__(add_repo|register_repo_root)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_CONFIG_DIR:-$HOME/.claude}/hooks/arikkfir/add_repo.py\"",
+            "timeout": 10
+          }
+        ]
+      },
+      {
         "matcher": "Bash",
         "hooks": [
           {
             "type": "command",
             "command": "python3 \"${CLAUDE_CONFIG_DIR:-$HOME/.claude}/hooks/arikkfir/guard.py\"",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_CONFIG_DIR:-$HOME/.claude}/hooks/arikkfir/commit_message.py\"",
             "timeout": 10
           }
         ]
