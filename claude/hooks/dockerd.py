@@ -6,8 +6,9 @@ docker build) fails until someone starts it. Their egress IP is shared, so anony
 limit; Google's mirror of Docker Hub has no such limit, and Docker falls back to Docker Hub for what the mirror lacks.
 
 Before starting the daemon it adds the mirror to /etc/docker/daemon.json, keeping whatever else is there, and leaves a
-file it can't parse alone. It doesn't wait for the daemon to come up, so the session starts as fast as before. A
-running daemon is left as it is. Cloud sessions only (CLAUDE_CODE_REMOTE=true).
+file it can't parse alone; if it can't write the file, the daemon starts without the mirror. It doesn't wait for the
+daemon to come up, so the session starts as fast as before. A running daemon is left as it is. Cloud sessions only
+(CLAUDE_CODE_REMOTE=true).
 """
 
 import json
@@ -73,7 +74,10 @@ def main():
     try:
         if os.environ.get("CLAUDE_CODE_REMOTE") != "true" or shutil.which(DOCKERD) is None or running(SOCKET):
             return
-        mirrored = add_mirror(DAEMON_JSON)
+        try:
+            mirrored = add_mirror(DAEMON_JSON)
+        except OSError:  # a daemon without the mirror still beats no daemon
+            mirrored = False
         start(LOG)
     except Exception:  # never break the session because of this hook
         return

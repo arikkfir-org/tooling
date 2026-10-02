@@ -89,6 +89,13 @@ class DockerdTest(unittest.TestCase):
         with open(self.hook.DAEMON_JSON) as f:
             self.assertEqual(f.read(), "{not json")
 
+    def test_starts_the_daemon_when_daemon_json_cannot_be_written(self):
+        with open(os.path.join(self.tmp, "etc"), "w"):
+            pass  # a file where /etc/docker should be: the write fails, even for root
+        output = json.loads(self.run_main())
+        self.assertTrue(self.was_started())
+        self.assertNotIn("mirror.gcr.io", output["hookSpecificOutput"]["additionalContext"])
+
     def test_leaves_a_running_daemon_alone(self):
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as server:
             server.bind(self.hook.SOCKET)
