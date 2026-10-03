@@ -31,8 +31,8 @@ request reviewer (`reviewer/`), and the organization pipelines every repository 
   token workspace Octomaton binds. Never add another. The token reads every repository: only the `clone` and `state`
   steps and the `github` sidecar of `review` mount it (an isolated workspace), never a step that runs the model.
 - Every reviewer step and the sidecar run in `me-west1-docker.pkg.dev/arikkfir/images/reviewer`, which
-  `arikkfir-org/octomaton` builds (`images/reviewer`): one image for a node to pull. Pin it by digest, the same in every
-  step; add tools there, not here.
+  `arikkfir-org/octomaton` builds (`images/reviewer`): one image for a node to pull. Run its `main` tag with
+  `imagePullPolicy: Always`, the same in every step; add tools there, not here.
 
 ## Before finishing a change
 

@@ -5,7 +5,8 @@
 # pr.json, pr.diff and pr.log at its root, then has opencode write findings.json there (its github sidecar serves GitHub
 # to the model with the token, so the model clones any other repository it needs), and report posts them as one review
 # by arikkfir-reviewer. Every step and the sidecar run in the reviewer image, which has bash, git and python3
-# besides the model's tools, so a node pulls one image for a review.
+# besides the model's tools, so a node pulls one image for a review. They run its main tag, which octomaton's
+# reviewer-image moves on every change, and pull it for every pod, so no node runs a main it cached earlier.
 apiVersion: tekton.dev/v1
 kind: PipelineRun
 metadata:
@@ -141,7 +142,8 @@ spec:
           # token.
           sidecars:
             - name: github
-              image: me-west1-docker.pkg.dev/arikkfir/images/reviewer:c63d03b@sha256:dd2de95039d7990344dc6451c533974cae82ae1fea884136cedc7ab0b1478cc9
+              image: me-west1-docker.pkg.dev/arikkfir/images/reviewer:main
+              imagePullPolicy: Always
               workspaces:
                 - name: github-token
                   mountPath: /workspace/github-token
@@ -210,7 +212,8 @@ spec:
                 value: "1"
           steps:
             - name: clone
-              image: me-west1-docker.pkg.dev/arikkfir/images/reviewer:c63d03b@sha256:dd2de95039d7990344dc6451c533974cae82ae1fea884136cedc7ab0b1478cc9
+              image: me-west1-docker.pkg.dev/arikkfir/images/reviewer:main
+              imagePullPolicy: Always
               workspaces:
                 - name: github-token
               script: |
@@ -251,7 +254,8 @@ spec:
                 mkdir .review
                 git -C "${tooling}" archive HEAD:reviewer | tar -x -C .review
             - name: state
-              image: me-west1-docker.pkg.dev/arikkfir/images/reviewer:c63d03b@sha256:dd2de95039d7990344dc6451c533974cae82ae1fea884136cedc7ab0b1478cc9
+              image: me-west1-docker.pkg.dev/arikkfir/images/reviewer:main
+              imagePullPolicy: Always
               workspaces:
                 - name: github-token
               script: |
@@ -261,7 +265,8 @@ spec:
                   --revision "${REVISION}" --base-ref "${BASE_REF}" --reviewer "${REVIEWER}" \
                   --token-file "$(workspaces.github-token.path)/token" --output "${NAME}/pr.json"
             - name: review
-              image: me-west1-docker.pkg.dev/arikkfir/images/reviewer:c63d03b@sha256:dd2de95039d7990344dc6451c533974cae82ae1fea884136cedc7ab0b1478cc9
+              image: me-west1-docker.pkg.dev/arikkfir/images/reviewer:main
+              imagePullPolicy: Always
               env:
                 - name: DEEPSEEK_API_KEY
                   valueFrom:
@@ -286,7 +291,8 @@ spec:
                 # Low reasoning effort: the review is many short turns of reading and searching.
                 opencode run --pure --variant low --format default < ../.review/prompt.md
             - name: check
-              image: me-west1-docker.pkg.dev/arikkfir/images/reviewer:c63d03b@sha256:dd2de95039d7990344dc6451c533974cae82ae1fea884136cedc7ab0b1478cc9
+              image: me-west1-docker.pkg.dev/arikkfir/images/reviewer:main
+              imagePullPolicy: Always
               script: |
                 #!/bin/sh
                 set -eu
@@ -294,7 +300,8 @@ spec:
                 python3 ../.review/findings.py check --state pr.json --findings findings.json \
                   --errors ../.review/errors.txt
             - name: fix
-              image: me-west1-docker.pkg.dev/arikkfir/images/reviewer:c63d03b@sha256:dd2de95039d7990344dc6451c533974cae82ae1fea884136cedc7ab0b1478cc9
+              image: me-west1-docker.pkg.dev/arikkfir/images/reviewer:main
+              imagePullPolicy: Always
               env:
                 - name: DEEPSEEK_API_KEY
                   valueFrom:
@@ -320,7 +327,8 @@ spec:
                   sed 's/^/- /' ../.review/errors.txt
                 } | opencode run --pure --continue --variant low --format default
             - name: recheck
-              image: me-west1-docker.pkg.dev/arikkfir/images/reviewer:c63d03b@sha256:dd2de95039d7990344dc6451c533974cae82ae1fea884136cedc7ab0b1478cc9
+              image: me-west1-docker.pkg.dev/arikkfir/images/reviewer:main
+              imagePullPolicy: Always
               script: |
                 #!/bin/sh
                 set -eu
@@ -376,13 +384,15 @@ spec:
                 mountPath: /tools
           steps:
             - name: fetch
-              image: me-west1-docker.pkg.dev/arikkfir/images/reviewer:c63d03b@sha256:dd2de95039d7990344dc6451c533974cae82ae1fea884136cedc7ab0b1478cc9
+              image: me-west1-docker.pkg.dev/arikkfir/images/reviewer:main
+              imagePullPolicy: Always
               script: |
                 #!/bin/sh
                 set -eu
                 git clone --quiet --depth 1 https://github.com/arikkfir-org/tooling.git /tools/tooling
             - name: report
-              image: me-west1-docker.pkg.dev/arikkfir/images/reviewer:c63d03b@sha256:dd2de95039d7990344dc6451c533974cae82ae1fea884136cedc7ab0b1478cc9
+              image: me-west1-docker.pkg.dev/arikkfir/images/reviewer:main
+              imagePullPolicy: Always
               env:
                 - name: GITHUB_TOKEN
                   valueFrom:

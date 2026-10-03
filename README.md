@@ -86,8 +86,8 @@ merged.
 
 Every step, the model's included, runs in the reviewer image, `me-west1-docker.pkg.dev/arikkfir/images/reviewer`
 (opencode plus bash, python3, git, jq, yq, curl, wget and GNU userland), which `arikkfir-org/octomaton` builds from
-`images/reviewer` and publishes from its `main`. `reviewer/pipelinerun.yaml` pins it by digest: bump the digest after it
-publishes a change. Octomaton mints the run's token for every repository of the organization, reading code and pull
+`images/reviewer` and publishes from its `main`. `reviewer/pipelinerun.yaml` runs its `main` tag and pulls it for every
+pod, so a change there reaches the next review. Octomaton mints the run's token for every repository of the organization, reading code and pull
 requests only. In `review`, only the `clone` and `state` steps, which run before the model, and the `github` sidecar
 mount it, so the model reads other repositories' code and pull requests (an internal one's too) through the sidecar,
 never with the token.
