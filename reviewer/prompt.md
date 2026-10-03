@@ -62,6 +62,11 @@ The repositories are read-only: the only file you write is `findings.json`, in y
 6. Check what you suspect: open the file and grep the other repositories. If you can't verify a suspicion, leave it
    out.
 
+Work in few turns. Every turn waits on the model however little it does, so make every call you already know you need
+in the same turn: read all of a step's files at once (both house rules, the repository's rules, every changed file you
+haven't read), and run independent searches and commands together, or chained in one shell command. Read a file in one
+go rather than in many small slices.
+
 Look for:
 
 - Bugs: wrong logic, unhandled errors or edge cases, races, broken idempotency, resource leaks.
