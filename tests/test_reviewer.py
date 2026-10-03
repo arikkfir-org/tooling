@@ -1324,11 +1324,14 @@ class ReviewPipelineRunTest(unittest.TestCase):
         with open(os.path.join(REVIEWER_DIR, "pipelinerun.yaml"), encoding="utf-8") as f:
             cls.text = f.read()
 
-    def test_the_reviewer_image_is_pinned_by_digest(self):
-        images = re.findall(r"image: (\S*/images/reviewer\S*)", self.text)
-        self.assertEqual(len(images), 3)  # the review and fix steps, and the github sidecar
-        for image in images:
-            self.assertRegex(image, r"^me-west1-docker\.pkg\.dev/arikkfir/images/reviewer:[0-9a-f]{7}@sha256:[0-9a-f]{64}$")
+    def test_every_step_runs_in_the_pinned_reviewer_image(self):
+        # One image for every step and the sidecar, so a node pulls one image for a review.
+        images = re.findall(r"image: (\S+)", self.text)
+        steps = re.findall(r"^ +- name: \S+\n +image: ", self.text, re.MULTILINE)
+        self.assertEqual(len(images), len(steps))
+        self.assertEqual(len(images), 9)  # setup's 2 steps, review's 4 and its sidecar, report's 2
+        self.assertEqual(len(set(images)), 1)
+        self.assertRegex(images[0], r"^me-west1-docker\.pkg\.dev/arikkfir/images/reviewer:[0-9a-f]{7}@sha256:[0-9a-f]{64}$")
 
     def test_only_the_sidecar_mounts_the_token(self):
         review = self.text[self.text.index("      - name: review\n"):self.text.index("      - name: report\n")]

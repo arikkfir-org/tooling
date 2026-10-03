@@ -4,7 +4,8 @@
 # requests of every repository of the organization. setup checks out the pull request's repository on the volume, with
 # pr.json, pr.diff and pr.log at its root, review has opencode write findings.json there (its github sidecar serves
 # GitHub to the model with the token, so the model clones any other repository it needs), and report posts them as one
-# review by arikkfir-reviewer.
+# review by arikkfir-reviewer. Every step and the sidecar run in the reviewer image, which has bash, git and python3
+# besides the model's tools, so a node pulls one image for a review.
 apiVersion: tekton.dev/v1
 kind: PipelineRun
 metadata:
@@ -153,7 +154,7 @@ spec:
                 value: $(params.reviewer)
           steps:
             - name: clone
-              image: docker.io/alpine/git:2.54.0
+              image: me-west1-docker.pkg.dev/arikkfir/images/reviewer:c63d03b@sha256:dd2de95039d7990344dc6451c533974cae82ae1fea884136cedc7ab0b1478cc9
               script: |
                 #!/bin/sh
                 set -eu
@@ -192,7 +193,7 @@ spec:
                 mkdir .review
                 git -C "${tooling}" archive HEAD:reviewer | tar -x -C .review
             - name: state
-              image: gcr.io/google.com/cloudsdktool/google-cloud-cli:587.0.0-slim
+              image: me-west1-docker.pkg.dev/arikkfir/images/reviewer:c63d03b@sha256:dd2de95039d7990344dc6451c533974cae82ae1fea884136cedc7ab0b1478cc9
               script: |
                 #!/bin/sh
                 set -eu
@@ -302,7 +303,7 @@ spec:
                 # Low reasoning effort: the review is many short turns of reading and searching.
                 opencode run --pure --variant low --format default < ../.review/prompt.md
             - name: check
-              image: gcr.io/google.com/cloudsdktool/google-cloud-cli:587.0.0-slim
+              image: me-west1-docker.pkg.dev/arikkfir/images/reviewer:c63d03b@sha256:dd2de95039d7990344dc6451c533974cae82ae1fea884136cedc7ab0b1478cc9
               script: |
                 #!/bin/sh
                 set -eu
@@ -328,7 +329,7 @@ spec:
                   sed 's/^/- /' ../.review/errors.txt
                 } | opencode run --pure --continue --variant low --format default
             - name: recheck
-              image: gcr.io/google.com/cloudsdktool/google-cloud-cli:587.0.0-slim
+              image: me-west1-docker.pkg.dev/arikkfir/images/reviewer:c63d03b@sha256:dd2de95039d7990344dc6451c533974cae82ae1fea884136cedc7ab0b1478cc9
               script: |
                 #!/bin/sh
                 set -eu
@@ -383,13 +384,13 @@ spec:
                 mountPath: /tools
           steps:
             - name: fetch
-              image: docker.io/alpine/git:2.54.0
+              image: me-west1-docker.pkg.dev/arikkfir/images/reviewer:c63d03b@sha256:dd2de95039d7990344dc6451c533974cae82ae1fea884136cedc7ab0b1478cc9
               script: |
                 #!/bin/sh
                 set -eu
                 git clone --quiet --depth 1 https://github.com/arikkfir-org/tooling.git /tools/tooling
             - name: report
-              image: gcr.io/google.com/cloudsdktool/google-cloud-cli:587.0.0-slim
+              image: me-west1-docker.pkg.dev/arikkfir/images/reviewer:c63d03b@sha256:dd2de95039d7990344dc6451c533974cae82ae1fea884136cedc7ab0b1478cc9
               env:
                 - name: GITHUB_TOKEN
                   valueFrom:

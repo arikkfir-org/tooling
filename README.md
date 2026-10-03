@@ -83,12 +83,12 @@ repository has it. Octomaton reads `reviewer/pipelinerun.yaml` from this reposit
 and the prompt run from the default branch too: `setup` extracts `reviewer/` from it, and `report` clones its own copy.
 So no pull request, here or elsewhere, changes its own review; a change here takes effect once merged.
 
-The model runs in the reviewer image, `me-west1-docker.pkg.dev/arikkfir/images/reviewer` (opencode plus bash, python3,
-git, jq, yq, curl, wget and GNU userland), which `arikkfir-org/octomaton` builds from `images/reviewer` and publishes
-from its `main`. `reviewer/pipelinerun.yaml` pins it by digest: bump the digest after it publishes a change. Octomaton
-mints the run's token for every repository of the organization, reading code and pull requests only. `setup` clones
-with it, and in `review` only the `github` sidecar mounts it, so the model reads other repositories' code and pull
-requests (an internal one's too) through the sidecar, never with the token.
+Every step, the model's included, runs in the reviewer image, `me-west1-docker.pkg.dev/arikkfir/images/reviewer`
+(opencode plus bash, python3, git, jq, yq, curl, wget and GNU userland), which `arikkfir-org/octomaton` builds from
+`images/reviewer` and publishes from its `main`. `reviewer/pipelinerun.yaml` pins it by digest: bump the digest after it
+publishes a change. Octomaton mints the run's token for every repository of the organization, reading code and pull
+requests only. `setup` clones with it, and in `review` only the `github` sidecar mounts it, so the model reads other
+repositories' code and pull requests (an internal one's too) through the sidecar, never with the token.
 
 ## Docs site
 
