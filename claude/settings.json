@@ -40,7 +40,11 @@
       "mcp__github__list_*",
       "mcp__github__search_*",
       "mcp__github__pull_request_read",
-      "mcp__github__issue_read"
+      "mcp__github__issue_read",
+      "mcp__gke__get_*",
+      "mcp__gke__list_*",
+      "mcp__gke__describe_*",
+      "mcp__gke__check_*"
     ],
     "ask": [
       "Bash(rm -rf *)",
@@ -61,6 +65,14 @@
       "Bash(git switch * --di*)",
       "Bash(git switch -C*)",
       "Bash(git switch * -C*)"
+    ],
+    "deny": [
+      "mcp__gke__apply_*",
+      "mcp__gke__patch_*",
+      "mcp__gke__delete_*",
+      "mcp__gke__create_*",
+      "mcp__gke__update_*",
+      "mcp__gke__cancel_*"
     ]
   },
   "hooks": {

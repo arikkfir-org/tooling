@@ -114,8 +114,10 @@ class BundleTest(unittest.TestCase):
             f.write(bundle + "\n")
 
     def run_main(self, remote="true"):
+        # A session that sets CLAUDE_CONFIG_DIR, which setup.sh then installs into.
         output = io.StringIO()
-        with mock.patch.dict(os.environ, {"CLAUDE_CODE_REMOTE": remote}), mock.patch("sys.stdout", output):
+        environ = {"CLAUDE_CODE_REMOTE": remote, "CLAUDE_CONFIG_DIR": self.hook.CONFIG_DIR}
+        with mock.patch.dict(os.environ, environ), mock.patch("sys.stdout", output):
             self.hook.main()
         self.assertEqual(output.getvalue(), "")  # an async hook's output goes nowhere
 
@@ -130,6 +132,20 @@ class BundleTest(unittest.TestCase):
         with open(self.ran) as f:
             self.assertEqual(f.read().strip(), self.hook.BASE_URL)
         self.assertIn(f"Replacing bundle {self.INSTALLED[:12]} with {self.PUBLISHED[:12]}", self.read_log())
+
+    def test_leaves_claude_config_dir_unset_when_the_session_does(self):
+        # setup.sh then finds the config directory and Claude Code's global config (~/.claude.json) where Claude Code
+        # does; a CLAUDE_CONFIG_DIR of ~/.claude would move the global config to ~/.claude/.claude.json.
+        with open(os.path.join(self.site, "setup.sh"), "w") as f:
+            f.write(f'#!/usr/bin/env bash\nbundle_sha256="{self.PUBLISHED}"\n'
+                    'echo "${CLAUDE_CONFIG_DIR-unset}" > "${HOME}/config-dir"\n')
+        self.install(self.INSTALLED)
+        environ = {key: value for key, value in os.environ.items() if key != "CLAUDE_CONFIG_DIR"}
+        environ.update(CLAUDE_CODE_REMOTE="true", HOME=self.tmp)
+        with mock.patch.dict(os.environ, environ, clear=True):
+            self.hook.main()
+        with open(os.path.join(self.tmp, "config-dir")) as f:
+            self.assertEqual(f.read().strip(), "unset")
 
     def test_installs_when_no_bundle_is_recorded(self):
         self.publish(self.PUBLISHED)
