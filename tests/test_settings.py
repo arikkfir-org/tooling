@@ -30,7 +30,6 @@ FORBIDDEN = [
     "git reset --hard",
     "git clean -fdx",
     "git rebase main",
-    "rm -rf build",
     # Local work that can't be recovered, and branches deleted on the remote.
     "git checkout -- .",
     "git checkout README.md",
@@ -149,11 +148,12 @@ class PermissionsTest(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertTrue(self.runs_without_a_prompt(command))
 
-    def test_recursive_deletion_asks(self):
-        ask = self.bash_rules("ask")
-        for command in ["rm -rf build", "rm -fr build", "rm -Rf build", "rm -r build", "rm -R build"]:
+    def test_deletion_is_never_asked_or_denied(self):
+        """Sessions run in throwaway sandboxes: whatever a deletion loses can be rebuilt."""
+        rules = self.bash_rules("ask") + self.bash_rules("deny")
+        for command in ["rm -rf build", "rm -fr build", "rm -Rf build", "rm -fR build", "rm -r build", "rm -R build"]:
             with self.subTest(command=command):
-                self.assertTrue(any(rule.fullmatch(command) for rule in ask))
+                self.assertFalse(any(rule.fullmatch(command) for rule in rules))
 
     def test_github_rules_only_read(self):
         for rule in self.permissions["allow"]:
