@@ -1336,14 +1336,14 @@ class ReviewPipelineRunTest(unittest.TestCase):
         with open(os.path.join(REVIEWER_DIR, "pipelinerun.yaml"), encoding="utf-8") as f:
             cls.text = f.read()
 
-    def test_every_step_runs_in_the_pinned_reviewer_image(self):
-        # One image for every step and the sidecar, so a node pulls one image for a review.
+    def test_every_step_runs_the_reviewer_images_main_tag_pulled_every_time(self):
+        # One image for every step and the sidecar, so a node pulls one image for a review. Its main tag moves, so every
+        # pod pulls it: a node must never run a main it cached earlier.
         images = re.findall(r"image: (\S+)", self.text)
-        steps = re.findall(r"^ +- name: \S+\n +image: ", self.text, re.MULTILINE)
+        steps = re.findall(r"^ +- name: \S+\n( +)image: \S+\n\1imagePullPolicy: Always\n", self.text, re.MULTILINE)
         self.assertEqual(len(images), len(steps))
         self.assertEqual(len(images), 9)  # review's 6 steps and its sidecar, report's 2
-        self.assertEqual(len(set(images)), 1)
-        self.assertRegex(images[0], r"^me-west1-docker\.pkg\.dev/arikkfir/images/reviewer:[0-9a-f]{7}@sha256:[0-9a-f]{64}$")
+        self.assertEqual(set(images), {"me-west1-docker.pkg.dev/arikkfir/images/reviewer:main"})
 
     def review_steps(self):
         """Each step of the review task: its name and its YAML."""
