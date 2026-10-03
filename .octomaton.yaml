@@ -41,8 +41,8 @@ organization:
         revision: "{{ .Revision }}"
         base-ref: "{{ .PullRequest.BaseRef }}"
         reviewer: "{{ .ReviewRequest.Reviewer }}"
-      # Reads the code and pull requests of every repository: setup clones with it, and review's github sidecar serves
-      # GitHub to the model with it.
+      # Reads the code and pull requests of every repository: review's clone and state steps read GitHub with it, and
+      # its github sidecar serves GitHub to the model with it.
       githubToken:
         workspace: github-token
         permissions: {contents: read, pull_requests: read}

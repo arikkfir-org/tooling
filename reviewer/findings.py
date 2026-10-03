@@ -169,7 +169,7 @@ def check(state_path, findings_path, errors_path=None, strict=False):
         codes = set(state["codes"])
         findings, errors = load(findings_path)
     except (OSError, ValueError, KeyError, TypeError) as error:
-        errors = [f"{state_path} is unusable ({error}); it must be the pr.json the setup task wrote."]
+        errors = [f"{state_path} is unusable ({error}); it must be the pr.json the state step wrote."]
     else:
         errors = errors or validate(findings, commentable, codes)
     if errors_path:
@@ -186,7 +186,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description="Checks findings.json against pr.json.")
     commands = parser.add_subparsers(dest="command", required=True)
     command = commands.add_parser("check", help="check findings.json")
-    command.add_argument("--state", required=True, help="pr.json, from the setup task")
+    command.add_argument("--state", required=True, help="pr.json, from the state step")
     command.add_argument("--findings", required=True, help="findings.json, from the model")
     command.add_argument("--errors", help="write the errors to this file, one per line")
     command.add_argument("--strict", action="store_true", help="exit 1 when there are errors")

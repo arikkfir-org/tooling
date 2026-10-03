@@ -1,10 +1,10 @@
 # The pull request reviewer (https://github.com/arikkfir-org/docs/blob/main/hub/designs/pr-reviewer.md). Octomaton runs
 # it when a review is requested from arikkfir-reviewer, reading this file at tooling's default branch for every
 # repository. It sets spec.params and binds workspace github-token, an installation token that reads the code and pull
-# requests of every repository of the organization. setup checks out the pull request's repository on the volume, with
-# pr.json, pr.diff and pr.log at its root, review has opencode write findings.json there (its github sidecar serves
-# GitHub to the model with the token, so the model clones any other repository it needs), and report posts them as one
-# review by arikkfir-reviewer. Every step and the sidecar run in the reviewer image, which has bash, git and python3
+# requests of every repository of the organization. review checks out the pull request's repository on the volume, with
+# pr.json, pr.diff and pr.log at its root, then has opencode write findings.json there (its github sidecar serves GitHub
+# to the model with the token, so the model clones any other repository it needs), and report posts them as one review
+# by arikkfir-reviewer. Every step and the sidecar run in the reviewer image, which has bash, git and python3
 # besides the model's tools, so a node pulls one image for a review.
 apiVersion: tekton.dev/v1
 kind: PipelineRun
@@ -43,19 +43,12 @@ spec:
       enableServiceLinks: false
   # Reserved once for all of a task's steps (step-level requests would add up as if the steps ran at once), and sized
   # from the 18 reviews of 2026-10-02: requests near typical use, so concurrent reviews share a node instead of waiting
-  # for another, and limits well above the peaks. setup clones two repositories and diffs one (18 MiB at most). review
+  # for another, and limits well above the peaks. review clones two repositories and diffs one (18 MiB at most), then
   # runs opencode, a Bun process that holds the whole session and runs ripgrep over the clones, while the model itself
   # runs at DeepSeek: 0.57 of a core on average, up to 0.93, and 620 MiB in 9 reviews of 10, 950 MiB at most. CPU is
   # unlimited, so it uses idle cores beyond its request. Its github sidecar has its own resources. report only calls
   # GitHub's API (18 MiB).
   taskRunSpecs:
-    - pipelineTaskName: setup
-      computeResources:
-        requests:
-          cpu: 100m
-          memory: 128Mi
-        limits:
-          memory: 1Gi
     - pipelineTaskName: review
       computeResources:
         requests:
@@ -102,9 +95,9 @@ spec:
       - name: check-summary
         value: $(tasks.report.results.check-summary)
     tasks:
-      - name: setup
-        retries: 2
-        timeout: 10m
+      - name: review
+        retries: 1
+        timeout: 45m
         workspaces:
           - name: shared
             workspace: shared
@@ -139,7 +132,39 @@ spec:
               type: string
           workspaces:
             - name: shared
+            # Outside /workspace, which every step shares: a mount point there would show in the model's steps too.
             - name: github-token
+              mountPath: /var/run/github-token
+          # The token is mounted only where a step or sidecar names it (Tekton's isolated workspaces, a beta feature;
+          # without it the run is refused): in clone and state, which run before the model, and in the github sidecar.
+          # The model reaches GitHub through the sidecar on 127.0.0.1:8080 (reviewer/github_proxy.py), never with the
+          # token.
+          sidecars:
+            - name: github
+              image: me-west1-docker.pkg.dev/arikkfir/images/reviewer:c63d03b@sha256:dd2de95039d7990344dc6451c533974cae82ae1fea884136cedc7ab0b1478cc9
+              workspaces:
+                - name: github-token
+                  mountPath: /workspace/github-token
+              computeResources:
+                requests:
+                  cpu: 50m
+                  memory: 64Mi
+                limits:
+                  memory: 256Mi
+              # The steps start once it answers.
+              readinessProbe:
+                exec:
+                  command: [curl, --fail, --silent, --output, /dev/null, "http://127.0.0.1:8080/healthz"]
+                periodSeconds: 2
+              script: |
+                #!/bin/sh
+                set -eu
+                # Its own copy of tooling's default branch, as report's: the model can rewrite anything on the volume.
+                git clone --quiet --depth 1 https://github.com/arikkfir-org/tooling.git /tmp/tooling
+                exec python3 /tmp/tooling/reviewer/github_proxy.py --token-file /workspace/github-token/token
+          # The model works in the pull request's checkout; .review/, beside it, holds the scripts and opencode's state.
+          # Every step starts in the volume's root, and those that work in the checkout cd into it: a step's working
+          # directory is fixed when the pod starts, before clone has made the checkout.
           stepTemplate:
             workingDir: $(workspaces.shared.path)
             env:
@@ -155,9 +180,39 @@ spec:
                 value: $(params.base-ref)
               - name: REVIEWER
                 value: $(params.reviewer)
+              # fix continues review's session, and steps share only volumes.
+              - name: HOME
+                value: $(workspaces.shared.path)/.review/home
+              - name: XDG_CONFIG_HOME
+                value: $(workspaces.shared.path)/.review/home/.config
+              - name: XDG_DATA_HOME
+                value: $(workspaces.shared.path)/.review/home/.local/share
+              - name: XDG_STATE_HOME
+                value: $(workspaces.shared.path)/.review/home/.local/state
+              - name: XDG_CACHE_HOME
+                value: $(workspaces.shared.path)/.review/home/.cache
+              # The working directory is the pull request's checkout, and no opencode.json, .opencode/, plugin, skill or
+              # CLAUDE.md from it configures opencode. opencode's read tool still hands the model an AGENTS.md or
+              # CONTEXT.md from a subdirectory of the checkout as instructions; no setting turns that off.
+              - name: OPENCODE_CONFIG
+                value: $(workspaces.shared.path)/.review/opencode.json
+              - name: OPENCODE_DISABLE_PROJECT_CONFIG
+                value: "1"
+              - name: OPENCODE_DISABLE_EXTERNAL_SKILLS
+                value: "1"
+              - name: OPENCODE_DISABLE_CLAUDE_CODE_PROMPT
+                value: "1"
+              - name: OPENCODE_DISABLE_SHARE
+                value: "1"
+              - name: OPENCODE_DISABLE_MODELS_FETCH
+                value: "1"
+              - name: OPENCODE_DISABLE_AUTOUPDATE
+                value: "1"
           steps:
             - name: clone
               image: me-west1-docker.pkg.dev/arikkfir/images/reviewer:c63d03b@sha256:dd2de95039d7990344dc6451c533974cae82ae1fea884136cedc7ab0b1478cc9
+              workspaces:
+                - name: github-token
               script: |
                 #!/bin/sh
                 set -eu
@@ -165,7 +220,7 @@ spec:
                 # The pull request's repository may be internal or private, so cloning it and fetching the pull
                 # request always take the read-only token: one path for every review, and no visibility check. git
                 # gets it as an HTTP header on its command line only, never in a .git/config, a URL or a credential
-                # helper, so nothing on the volume, which review's model reads, holds it.
+                # helper, so nothing on the volume, which the model reads, holds it.
                 token="$(cat "$(workspaces.github-token.path)/token")"
                 credentials="$(printf 'x-access-token:%s' "${token}" | base64 | tr -d '\n')"
                 auth="http.extraHeader=Authorization: Basic ${credentials}"
@@ -197,103 +252,28 @@ spec:
                 git -C "${tooling}" archive HEAD:reviewer | tar -x -C .review
             - name: state
               image: me-west1-docker.pkg.dev/arikkfir/images/reviewer:c63d03b@sha256:dd2de95039d7990344dc6451c533974cae82ae1fea884136cedc7ab0b1478cc9
+              workspaces:
+                - name: github-token
               script: |
                 #!/bin/sh
                 set -eu
                 exec python3 .review/state.py --repository "${REPOSITORY}" --number "${NUMBER}" \
                   --revision "${REVISION}" --base-ref "${BASE_REF}" --reviewer "${REVIEWER}" \
                   --token-file "$(workspaces.github-token.path)/token" --output "${NAME}/pr.json"
-      - name: review
-        runAfter:
-          - setup
-        retries: 1
-        timeout: 40m
-        workspaces:
-          - name: shared
-            workspace: shared
-          - name: github-token
-            workspace: github-token
-        params:
-          - name: name
-            value: $(params.name)
-        taskSpec:
-          params:
-            - name: name
-              type: string
-          workspaces:
-            - name: shared
-            - name: github-token
-          # The token is the github sidecar's alone: a workspace a sidecar names is mounted only there (Tekton's
-          # isolated workspaces, a beta feature; without it the run is refused). The model reaches GitHub through the
-          # sidecar on 127.0.0.1:8080 (reviewer/github_proxy.py), never with the token.
-          sidecars:
-            - name: github
-              image: me-west1-docker.pkg.dev/arikkfir/images/reviewer:c63d03b@sha256:dd2de95039d7990344dc6451c533974cae82ae1fea884136cedc7ab0b1478cc9
-              workspaces:
-                - name: github-token
-                  mountPath: /workspace/github-token
-              computeResources:
-                requests:
-                  cpu: 50m
-                  memory: 64Mi
-                limits:
-                  memory: 256Mi
-              # The steps start once it answers.
-              readinessProbe:
-                exec:
-                  command: [curl, --fail, --silent, --output, /dev/null, "http://127.0.0.1:8080/healthz"]
-                periodSeconds: 2
-              script: |
-                #!/bin/sh
-                set -eu
-                # Its own copy of tooling's default branch, as report's: the model can rewrite anything on the volume.
-                git clone --quiet --depth 1 https://github.com/arikkfir-org/tooling.git /tmp/tooling
-                exec python3 /tmp/tooling/reviewer/github_proxy.py --token-file /workspace/github-token/token
-          # The model works in the pull request's checkout; .review/, beside it, holds the scripts and opencode's state.
-          stepTemplate:
-            workingDir: $(workspaces.shared.path)/$(params.name)
-            env:
-              - name: DEEPSEEK_API_KEY
-                valueFrom:
-                  secretKeyRef:
-                    name: reviewer-deepseek-api-key
-                    key: api-key
-              # fix continues review's session, and steps share only volumes.
-              - name: HOME
-                value: $(workspaces.shared.path)/.review/home
-              - name: XDG_CONFIG_HOME
-                value: $(workspaces.shared.path)/.review/home/.config
-              - name: XDG_DATA_HOME
-                value: $(workspaces.shared.path)/.review/home/.local/share
-              - name: XDG_STATE_HOME
-                value: $(workspaces.shared.path)/.review/home/.local/state
-              - name: XDG_CACHE_HOME
-                value: $(workspaces.shared.path)/.review/home/.cache
-              # The working directory is the pull request's checkout, and no opencode.json, .opencode/, plugin, skill or
-              # CLAUDE.md from it configures opencode. opencode's read tool still hands the model an AGENTS.md or
-              # CONTEXT.md from a subdirectory of the checkout as instructions; no setting turns that off.
-              - name: OPENCODE_CONFIG
-                value: $(workspaces.shared.path)/.review/opencode.json
-              - name: OPENCODE_DISABLE_PROJECT_CONFIG
-                value: "1"
-              - name: OPENCODE_DISABLE_EXTERNAL_SKILLS
-                value: "1"
-              - name: OPENCODE_DISABLE_CLAUDE_CODE_PROMPT
-                value: "1"
-              - name: OPENCODE_DISABLE_SHARE
-                value: "1"
-              - name: OPENCODE_DISABLE_MODELS_FETCH
-                value: "1"
-              - name: OPENCODE_DISABLE_AUTOUPDATE
-                value: "1"
-          steps:
             - name: review
               image: me-west1-docker.pkg.dev/arikkfir/images/reviewer:c63d03b@sha256:dd2de95039d7990344dc6451c533974cae82ae1fea884136cedc7ab0b1478cc9
+              env:
+                - name: DEEPSEEK_API_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: reviewer-deepseek-api-key
+                      key: api-key
               script: |
                 #!/bin/sh
                 set -eu
-                # The token is the github sidecar's alone: never run the model where it can read it.
-                if [ -e /workspace/github-token ]; then
+                cd "${NAME}"
+                # Only clone, state and the github sidecar mount the token: never run the model where it can read it.
+                if [ -e /workspace/github-token ] || [ -e /var/run/github-token ]; then
                   echo "The GitHub token is mounted in this step; refusing to run the model." >&2
                   exit 1
                 fi
@@ -310,15 +290,23 @@ spec:
               script: |
                 #!/bin/sh
                 set -eu
+                cd "${NAME}"
                 python3 ../.review/findings.py check --state pr.json --findings findings.json \
                   --errors ../.review/errors.txt
             - name: fix
               image: me-west1-docker.pkg.dev/arikkfir/images/reviewer:c63d03b@sha256:dd2de95039d7990344dc6451c533974cae82ae1fea884136cedc7ab0b1478cc9
+              env:
+                - name: DEEPSEEK_API_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: reviewer-deepseek-api-key
+                      key: api-key
               script: |
                 #!/bin/sh
                 set -eu
-                # The token is the github sidecar's alone: never run the model where it can read it.
-                if [ -e /workspace/github-token ]; then
+                cd "${NAME}"
+                # Only clone, state and the github sidecar mount the token: never run the model where it can read it.
+                if [ -e /workspace/github-token ] || [ -e /var/run/github-token ]; then
                   echo "The GitHub token is mounted in this step; refusing to run the model." >&2
                   exit 1
                 fi
@@ -336,6 +324,7 @@ spec:
               script: |
                 #!/bin/sh
                 set -eu
+                cd "${NAME}"
                 python3 ../.review/findings.py check --strict --state pr.json --findings findings.json
       - name: report
         runAfter:
