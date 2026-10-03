@@ -820,7 +820,7 @@ class PipelineRunTest(unittest.TestCase):
             text = f.read()
         names = re.findall(r"secretKeyRef:\n\s+name: (\S+)\n", text)
         self.assertEqual(len(names), text.count("secretKeyRef:"))
-        self.assertEqual(sorted(names), ["reviewer-deepseek-api-key", "reviewer-github-pat"])
+        self.assertEqual(sorted(set(names)), ["reviewer-deepseek-api-key", "reviewer-github-pat"])
         self.assertIsNone(re.search(r"secretName:|secretRef:|^\s*secret:", text, re.MULTILINE))
 
     def test_every_task_requests_cpu_and_memory_and_limits_only_memory(self):
@@ -971,7 +971,7 @@ class LocalGitHubTest(unittest.TestCase):
 
 
 class CloneStepTest(LocalGitHubTest):
-    """Runs setup's clone step against the local github.com."""
+    """Runs the review task's clone step against the local github.com."""
 
     def clone(self, repository, succeeds=True):
         """Runs the clone step as Tekton would, in the workspace, with github.com pointing at the local server. Returns
@@ -1341,29 +1341,55 @@ class ReviewPipelineRunTest(unittest.TestCase):
         images = re.findall(r"image: (\S+)", self.text)
         steps = re.findall(r"^ +- name: \S+\n +image: ", self.text, re.MULTILINE)
         self.assertEqual(len(images), len(steps))
-        self.assertEqual(len(images), 9)  # setup's 2 steps, review's 4 and its sidecar, report's 2
+        self.assertEqual(len(images), 9)  # review's 6 steps and its sidecar, report's 2
         self.assertEqual(len(set(images)), 1)
         self.assertRegex(images[0], r"^me-west1-docker\.pkg\.dev/arikkfir/images/reviewer:[0-9a-f]{7}@sha256:[0-9a-f]{64}$")
 
-    def test_only_the_sidecar_mounts_the_token(self):
+    def review_steps(self):
+        """Each step of the review task: its name and its YAML."""
+        review = self.text[self.text.index("      - name: review\n"):self.text.index("      - name: report\n")]
+        steps = review[review.index("\n          steps:\n"):]
+        return dict(re.findall(r"^ {12}- name: (\S+)\n((?: {14}.*\n|\n)*)", steps, re.MULTILINE))
+
+    def test_only_clone_state_and_the_sidecar_mount_the_token(self):
         review = self.text[self.text.index("      - name: review\n"):self.text.index("      - name: report\n")]
         self.assertRegex(review, r"\n {10}sidecars:\n {12}- name: github\n(?: {14}.*\n)*? {14}workspaces:\n"
                                  r" {16}- name: github-token\n")
-        steps = review[review.index("\n          steps:\n"):]
+        steps = self.review_steps()
+        self.assertEqual(list(steps), ["clone", "state", "review", "check", "fix", "recheck"])
+        mounting = [name for name, step in steps.items()
+                    if re.search(r"^ {14}workspaces:\n {16}- name: github-token\n", step, re.MULTILINE)]
+        self.assertEqual(mounting, ["clone", "state"])
         for step in ("review", "fix"):
             with self.subTest(step=step):
                 script = step_script(step)
-                self.assertIn("/workspace/github-token", script)
+                for path in self.TOKEN_PATHS:
+                    self.assertIn(path, script)
                 self.assertNotIn("$(workspaces.github-token", script)
-        self.assertNotIn("github-token", steps.replace("/workspace/github-token", ""))
+        for name in ("review", "check", "fix", "recheck"):
+            with self.subTest(step=name):
+                step = steps[name]
+                for path in self.TOKEN_PATHS:
+                    step = step.replace(path, "")
+                self.assertNotIn("github-token", step)
+        # Mounted outside /workspace, which every step shares, so no mount point shows in the model's steps.
+        self.assertRegex(review, r"\n {12}- name: github-token\n {14}mountPath: /var/run/github-token\n")
+
+    def test_the_deepseek_key_reaches_only_the_model(self):
+        steps = self.review_steps()
+        holding = [name for name, step in steps.items() if "reviewer-deepseek-api-key" in step]
+        self.assertEqual(holding, ["review", "fix"])
+        template = self.text[self.text.index("          stepTemplate:\n"):self.text.index("          steps:\n")]
+        self.assertNotIn("reviewer-deepseek-api-key", template)
+
+    TOKEN_PATHS = ("/workspace/github-token", "/var/run/github-token")  # the sidecar's mount, and clone's and state's
 
     def run_model_step(self, step, mounted):
-        """Runs a model step as Tekton would: in the checkout, with .review/ beside it and opencode faked. Returns the
-        result and opencode's arguments (None when it didn't run)."""
+        """Runs a model step as Tekton would: in the volume's root, with the checkout and .review/ in it and opencode
+        faked. Returns the result and opencode's arguments (None when it didn't run)."""
         with tempfile.TemporaryDirectory() as root:
-            token = os.path.join(root, "workspace", "github-token")
             if mounted:
-                os.makedirs(token)
+                os.makedirs(os.path.join(root, mounted.lstrip("/")))
             work, bin_dir, config = (os.path.join(root, name) for name in ("infra", "bin", "config"))
             os.makedirs(work)
             os.makedirs(os.path.join(root, ".review"))
@@ -1375,9 +1401,11 @@ class ReviewPipelineRunTest(unittest.TestCase):
                 f.write('#!/bin/sh\necho "$@" > "$RAN"\n')
             os.chmod(os.path.join(bin_dir, "opencode"), 0o755)
             ran = os.path.join(root, "ran")
-            env = {"PATH": f"{bin_dir}:{os.environ['PATH']}", "XDG_CONFIG_HOME": config, "RAN": ran}
-            script = step_script(step).replace("/workspace/github-token", token)
-            result = subprocess.run(["sh", "-c", script], cwd=work, env=env, input="", capture_output=True, text=True)
+            env = {"PATH": f"{bin_dir}:{os.environ['PATH']}", "XDG_CONFIG_HOME": config, "RAN": ran, "NAME": "infra"}
+            script = step_script(step)
+            for path in self.TOKEN_PATHS:
+                script = script.replace(path, os.path.join(root, path.lstrip("/")))
+            result = subprocess.run(["sh", "-c", script], cwd=root, env=env, input="", capture_output=True, text=True)
             if not os.path.exists(ran):
                 return result, None
             with open(ran, encoding="utf-8") as f:
@@ -1385,23 +1413,27 @@ class ReviewPipelineRunTest(unittest.TestCase):
 
     def test_the_model_never_runs_where_the_token_is_mounted(self):
         for step in ("review", "fix"):
-            for mounted in (True, False):
+            for mounted in (*self.TOKEN_PATHS, None):
                 with self.subTest(step=step, mounted=mounted):
                     result, args = self.run_model_step(step, mounted)
-                    self.assertEqual((result.returncode != 0, args is not None), (mounted, not mounted), result.stderr)
+                    self.assertEqual((result.returncode != 0, args is not None), (bool(mounted), not mounted),
+                                     result.stderr)
                     if mounted:
                         self.assertIn("refusing to run the model", result.stderr)
 
     def test_the_model_reasons_at_low_effort(self):
         for step in ("review", "fix"):
             with self.subTest(step=step):
-                result, args = self.run_model_step(step, mounted=False)
+                result, args = self.run_model_step(step, mounted=None)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertIn("--variant low", " ".join(args))
 
     def test_the_model_works_in_the_checkout(self):
-        self.assertIn("\n          stepTemplate:\n            workingDir: $(workspaces.shared.path)/$(params.name)\n",
-                      self.text)
+        # Steps start in the volume's root, made when the pod starts, and cd into the checkout clone makes.
+        self.assertIn("\n          stepTemplate:\n            workingDir: $(workspaces.shared.path)\n", self.text)
+        for step in ("review", "check", "fix", "recheck"):
+            with self.subTest(step=step):
+                self.assertTrue(step_script(step).startswith('#!/bin/sh\nset -eu\ncd "${NAME}"\n'))
         self.assertIn('--findings "$(workspaces.shared.path)/$(params.name)/findings.json"', step_script("report"))
         self.assertIn('--output "${NAME}/pr.json"', step_script("state"))
 
