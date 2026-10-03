@@ -7,8 +7,8 @@ request reviewer (`reviewer/`), and the organization pipelines every repository 
 ## Rules
 
 - `claude/` is published to a public bucket. Never put secrets, tokens, internal hostnames or personal data in it.
-  Allowed files: `claude/CLAUDE.md`, `claude/settings.json`, `claude/hooks/*.py`. Anything else needs a matching change
-  to `scripts/verify.py`.
+  Allowed files: `claude/CLAUDE.md`, `claude/settings.json`, `claude/mcp.json`, `claude/hooks/*.py`. Anything else needs
+  a matching change to `scripts/verify.py`.
 - Hooks must never break a session: catch everything, fail open, stay fast (< 1 s typical), stdlib-only Python 3.
 - `claude/CLAUDE.md` is the user's personal response style. Change its substance only when asked.
 - `setup/setup.sh` must stay idempotent and fail-soft (warn and exit 0 unless `ARIKKFIR_CLAUDE_STRICT=1`). Keep the

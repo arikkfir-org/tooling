@@ -1,3 +1,4 @@
+import fnmatch
 import json
 import os
 import re
@@ -73,6 +74,38 @@ ROUTINE = [
     "python3 -m unittest discover -s tests",
 ]
 
+# The tools of GKE's remote MCP server (container.googleapis.com/mcp, MCP server gke in mcp.json): sessions read the hub
+# cluster without a prompt and never change it.
+GKE_READ_TOOLS = [
+    "list_k8s_api_resources",
+    "check_k8s_auth",
+    "describe_k8s_resource",
+    "list_k8s_events",
+    "get_k8s_resource",
+    "get_k8s_cluster_info",
+    "get_k8s_version",
+    "get_k8s_rollout_status",
+    "get_k8s_logs",
+    "list_clusters",
+    "get_cluster",
+    "list_operations",
+    "get_operation",
+    "list_node_pools",
+    "get_node_pool",
+]
+GKE_WRITE_TOOLS = [
+    "apply_k8s_manifest",
+    "patch_k8s_resource",
+    "delete_k8s_resource",
+    "create_cluster",
+    "update_cluster",
+    "delete_cluster",
+    "create_node_pool",
+    "update_node_pool",
+    "delete_node_pool",
+    "cancel_operation",
+]
+
 
 def bash_rule(rule):
     """The regex of a Bash(…) rule: `*` is any text, a trailing ` *` also matches the bare command, and a trailing
@@ -101,10 +134,10 @@ class PermissionsTest(unittest.TestCase):
         )
 
     def test_rules_are_scoped(self):
-        for kind in ("allow", "ask"):
+        for kind in ("allow", "ask", "deny"):
             for rule in self.permissions[kind]:
                 with self.subTest(rule=rule):
-                    self.assertRegex(rule, r"^(Bash\([^*()][^()]*\)|mcp__github__[a-z_]+\*?)$")
+                    self.assertRegex(rule, r"^(Bash\([^*()][^()]*\)|mcp__(github|gke)__[a-z_]+\*?)$")
 
     def test_forbidden_commands_never_run_unasked(self):
         for command in FORBIDDEN:
@@ -127,6 +160,19 @@ class PermissionsTest(unittest.TestCase):
             if rule.startswith("mcp__github__"):
                 with self.subTest(rule=rule):
                     self.assertRegex(rule, r"^mcp__github__(get_|list_|search_|pull_request_read$|issue_read$)")
+
+    def test_gke_reads_run_unasked_and_writes_are_denied(self):
+        def matches(kind, tool):
+            return any(fnmatch.fnmatchcase(f"mcp__gke__{tool}", rule) for rule in self.permissions[kind])
+
+        for tool in GKE_READ_TOOLS:
+            with self.subTest(tool=tool):
+                self.assertTrue(matches("allow", tool))
+                self.assertFalse(matches("deny", tool))
+        for tool in GKE_WRITE_TOOLS:
+            with self.subTest(tool=tool):
+                self.assertTrue(matches("deny", tool))
+                self.assertFalse(matches("allow", tool))
 
 
 if __name__ == "__main__":

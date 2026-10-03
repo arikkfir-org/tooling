@@ -69,6 +69,33 @@ with open(target + ".tmp", "w") as f:
 os.replace(target + ".tmp", target)
 PYTHON
 
+# MCP servers live in Claude Code's global config, beside the config directory unless CLAUDE_CONFIG_DIR moves it. Claude
+# Code rewrites that file itself, so it is written only when a bundle server is missing or differs, keeping its mode.
+global_config="${CLAUDE_CONFIG_DIR:-${HOME}}/.claude.json"
+python3 - "${global_config}" "${src}/mcp.json" <<'PYTHON' || fail "could not merge MCP servers into ${global_config}"
+import json, os, sys
+
+target, bundle_path = sys.argv[1], sys.argv[2]
+
+config = {}
+if os.path.exists(target):
+    with open(target) as f:
+        config = json.load(f)
+with open(bundle_path) as f:
+    servers = json.load(f)["mcpServers"]
+current = config.get("mcpServers") or {}
+if all(current.get(name) == server for name, server in servers.items()):
+    sys.exit(0)
+config["mcpServers"] = {**current, **servers}
+mode = os.stat(target).st_mode & 0o777 if os.path.exists(target) else 0o600
+fd = os.open(target + ".tmp", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, mode)
+with os.fdopen(fd, "w") as f:
+    json.dump(config, f, indent=2)
+    f.write("\n")
+os.chmod(target + ".tmp", mode)
+os.replace(target + ".tmp", target)
+PYTHON
+
 # Recorded last, so an install that failed partway is retried by bundle.py.
 echo "${bundle_sha256}" > "${hooks}/.bundle"
 echo "arikkfir-claude: installed bundle ${bundle_sha256:0:12} into ${config_dir}"

@@ -17,9 +17,11 @@ import tarfile
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DIST = os.path.join(ROOT, "dist")
 MAX_BYTES = 256 * 1024
-ALLOWED_FILES = ["claude/CLAUDE.md", "claude/settings.json", "claude/hooks/*.py"]
+ALLOWED_FILES = ["claude/CLAUDE.md", "claude/settings.json", "claude/mcp.json", "claude/hooks/*.py"]
 ALLOWED_DIRS = {"claude", "claude/hooks"}
 FORBIDDEN_SETTINGS = {"env", "apiKeyHelper", "awsAuthRefresh", "awsCredentialExport", "otelHeadersHelper"}
+# An MCP server's credentials: request headers, a command printing them, a stdio server's environment, an OAuth client.
+FORBIDDEN_MCP = {"headers", "headersHelper", "env", "oauth"}
 
 
 def keys(node):
@@ -67,6 +69,10 @@ def main():
             found = FORBIDDEN_SETTINGS & set(keys(json.load(f)))
         if found:
             errors.append(f"settings.json must not contain credential-bearing keys: {', '.join(sorted(found))}")
+        with open(os.path.join(extract_dir, "claude", "mcp.json")) as f:
+            found = FORBIDDEN_MCP & set(keys(json.load(f)))
+        if found:
+            errors.append(f"mcp.json must not contain credential-bearing keys: {', '.join(sorted(found))}")
 
     for error in errors:
         print(f"error: {error}", file=sys.stderr)

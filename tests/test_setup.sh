@@ -36,6 +36,12 @@ import json, sys
 installed, bundled = (json.load(open(p)) for p in sys.argv[1:3])
 assert installed == bundled
 PYTHON
+python3 - "$work/fresh/.claude.json" claude/mcp.json <<'PYTHON' || fail ".claude.json does not hold the bundle's MCP servers"
+import json, sys
+installed, bundled = (json.load(open(p)) for p in sys.argv[1:3])
+assert installed == bundled
+PYTHON
+[[ "$(stat -c %a "$work/fresh/.claude.json")" == 600 ]] || fail ".claude.json is readable by others"
 sha="$(sed -n 's/^bundle_sha256="\(.*\)"$/\1/p' dist/setup.sh)"
 [[ "$(cat "$work/fresh/hooks/arikkfir/.bundle")" == "$sha" ]] || fail "installed bundle not recorded"
 before="$(snapshot "$work/fresh")"
@@ -67,6 +73,9 @@ mkdir -p "$work/existing/hooks/arikkfir" "$work/existing/hooks/mine"
 echo '{"model": "opus", "hooks": {"Stop": [{"hooks": [{"type": "command", "command": "true"}]}]}}' \
   > "$work/existing/settings.json"
 touch "$work/existing/hooks/arikkfir/stale.py" "$work/existing/hooks/mine/keep.sh"
+echo '{"numStartups": 3, "mcpServers": {"mine": {"type": "http", "url": "https://example.com/mcp"},
+  "gke": {"type": "http", "url": "https://example.com/old"}}}' > "$work/existing/.claude.json"
+chmod 0640 "$work/existing/.claude.json"
 ARIKKFIR_CLAUDE_STRICT=1 install_into "$work/existing"
 python3 - "$work/existing/settings.json" <<'PYTHON' || fail "existing settings were not merged"
 import json, sys
@@ -74,6 +83,13 @@ settings = json.load(open(sys.argv[1]))
 assert settings["model"] == "opus"
 assert set(settings["hooks"]) == {"Stop", "SessionStart", "PreToolUse", "PostToolUse"}
 PYTHON
+python3 - "$work/existing/.claude.json" claude/mcp.json <<'PYTHON' || fail "MCP servers were not merged into .claude.json"
+import json, sys
+config, bundled = (json.load(open(p)) for p in sys.argv[1:3])
+assert config["numStartups"] == 3
+assert config["mcpServers"] == {"mine": {"type": "http", "url": "https://example.com/mcp"}, **bundled["mcpServers"]}
+PYTHON
+[[ "$(stat -c %a "$work/existing/.claude.json")" == 640 ]] || fail ".claude.json lost its mode"
 [[ ! -e "$work/existing/hooks/arikkfir/stale.py" ]] || fail "stale bundle hook kept"
 [[ -e "$work/existing/hooks/mine/keep.sh" ]] || fail "foreign hook removed"
 
@@ -83,6 +99,6 @@ for bundle in "$work"/tampered/bundles/*.tar.gz; do printf 'x' >> "$bundle"; don
 serve "$work/tampered"
 if ARIKKFIR_CLAUDE_STRICT=1 install_into "$work/strict" 2> /dev/null; then fail "strict mode accepted a tampered bundle"; fi
 ARIKKFIR_CLAUDE_STRICT=0 install_into "$work/lenient" 2> /dev/null || fail "default mode failed instead of warning"
-[[ ! -e "$work/lenient/CLAUDE.md" ]] || fail "tampered bundle was installed"
+[[ ! -e "$work/lenient/CLAUDE.md" && ! -e "$work/lenient/.claude.json" ]] || fail "tampered bundle was installed"
 
 echo "setup.sh tests passed"

@@ -10,7 +10,8 @@ A user-level configuration installed into `~/.claude` of every Claude Code on th
 | File | Purpose |
 | --- | --- |
 | [`claude/CLAUDE.md`](claude/CLAUDE.md) | User-level instructions: tone, terseness, answer-first responses |
-| [`claude/settings.json`](claude/settings.json) | Registers the hooks; runs the repositories' checks, local git and read-only GitHub tools without a prompt, and asks before `rm -r`, a remote branch deletion or a switch that discards changes or resets a branch |
+| [`claude/settings.json`](claude/settings.json) | Registers the hooks; runs the repositories' checks, local git, read-only GitHub tools and the `gke` MCP server's read tools without a prompt, denies the `gke` MCP server's write tools, and asks before `rm -r`, a remote branch deletion or a switch that discards changes or resets a branch |
+| [`claude/mcp.json`](claude/mcp.json) | MCP servers: `gke`, GKE's remote MCP server (`https://container.googleapis.com/mcp`), which reads the hub cluster as the environment's Google Cloud credential, `claude-code@` ([design](https://github.com/arikkfir-org/docs/blob/main/hub/designs/claude-code-cluster-access.md)) |
 | [`claude/hooks/guard.py`](claude/hooks/guard.py) | `PreToolUse` (Bash): denies force-pushes/deletions of `main`/`master` and recursive deletion of `/` or `~`; asks before deleting any other remote branch and before a `git switch` that discards changes or resets a branch, in any spelling |
 | [`claude/hooks/commit_message.py`](claude/hooks/commit_message.py) | `PreToolUse` (Bash): in `arikkfir-org` repositories, denies a `git commit` whose message breaks the commit rules (`CONTRIBUTING.md` in `docs`), and says what to fix |
 | [`claude/hooks/format.py`](claude/hooks/format.py) | `PostToolUse` (Edit/Write): runs `gofmt` / `terraform fmt` on the written file and tells Claude when it changed |
@@ -29,9 +30,10 @@ curl -fsSL https://storage.googleapis.com/arikkfir-claude/setup.sh | bash
 ```
 
 `setup.sh` downloads the bundle it is pinned to, verifies its SHA-256, and installs it into
-`${CLAUDE_CONFIG_DIR:-~/.claude}`: `CLAUDE.md` is replaced, hooks live in `hooks/arikkfir/` (replaced as a whole), and
-`settings.json` is merged with any existing settings (bundle values win). Running it again changes nothing. If anything
-fails it warns and exits 0, so a broken download never blocks a session; set `ARIKKFIR_CLAUDE_STRICT=1` to fail instead.
+`${CLAUDE_CONFIG_DIR:-~/.claude}`: `CLAUDE.md` is replaced, hooks live in `hooks/arikkfir/` (replaced as a whole),
+`settings.json` is merged with any existing settings (bundle values win), and `mcp.json`'s servers join Claude Code's
+global config (`.claude.json`), replacing servers of the same name. Running it again changes nothing. If anything fails
+it warns and exits 0, so a broken download never blocks a session; set `ARIKKFIR_CLAUDE_STRICT=1` to fail instead.
 
 The environment runs its setup script once and starts later sessions from a snapshot of the result for about seven
 days, and a resumed session skips it too. So `setup.sh` records the bundle it installed in `hooks/arikkfir/.bundle`, and
@@ -57,8 +59,9 @@ Uploads use `gcloud storage rsync --checksums-only`, so unchanged objects are no
 The bundle is public. What guards it:
 
 1. `scripts/build.sh` archives committed files under `claude/` only (`git archive`), so untracked files never ship.
-2. `scripts/verify.py` allows only `CLAUDE.md`, `settings.json` and `hooks/*.py`, caps the size at 256 KiB, and rejects
-   settings keys that exist to carry credentials (`env`, `apiKeyHelper`, …).
+2. `scripts/verify.py` allows only `CLAUDE.md`, `settings.json`, `mcp.json` and `hooks/*.py`, caps the size at 256 KiB,
+   and rejects settings keys that exist to carry credentials (`env`, `apiKeyHelper`, …) and MCP servers' credentials
+   (`headers`, `headersHelper`, `env`, `oauth`).
 3. gitleaks scans the extracted bundle and the repository; any finding fails the pipeline.
 
 ## Pull request reviewer
