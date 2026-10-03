@@ -68,6 +68,22 @@ rm "$work/fresh/CLAUDE.md"
 refresh "$work/fresh"
 [[ "$before" == "$(snapshot "$work/fresh")" ]] || fail "bundle.py did not reinstall the published bundle"
 
+# Without CLAUDE_CONFIG_DIR, as in cloud sessions, the bundle lives in ~/.claude and Claude Code's global config in
+# ~/.claude.json, and bundle.py's reinstall uses the same places.
+home="$work/home"
+HOME="$home" ARIKKFIR_CLAUDE_STRICT=1 ARIKKFIR_CLAUDE_BASE_URL="http://127.0.0.1:${port}" \
+  env -u CLAUDE_CONFIG_DIR bash dist/setup.sh > /dev/null
+echo "0000000000000000000000000000000000000000000000000000000000000000" > "$home/.claude/hooks/arikkfir/.bundle"
+rm "$home/.claude.json"
+HOME="$home" CLAUDE_CODE_REMOTE=true ARIKKFIR_CLAUDE_BASE_URL="http://127.0.0.1:${port}" TMPDIR="$work" \
+  env -u CLAUDE_CONFIG_DIR python3 "$home/.claude/hooks/arikkfir/bundle.py" < /dev/null
+python3 - "$home/.claude.json" claude/mcp.json <<'PYTHON' || fail "bundle.py did not merge the MCP servers into ~/.claude.json"
+import json, sys
+installed, bundled = (json.load(open(p)) for p in sys.argv[1:3])
+assert installed == bundled
+PYTHON
+[[ ! -e "$home/.claude/.claude.json" ]] || fail "bundle.py wrote a .claude.json that Claude Code doesn't read"
+
 # Existing settings are kept and bundle values win; stale bundle hooks go, foreign hooks stay.
 mkdir -p "$work/existing/hooks/arikkfir" "$work/existing/hooks/mine"
 echo '{"model": "opus", "hooks": {"Stop": [{"hooks": [{"type": "command", "command": "true"}]}]}}' \

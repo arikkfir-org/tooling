@@ -57,11 +57,12 @@ def main():
         if bundle is None or bundle == current:
             return
         log(f"Replacing bundle {(current or 'unknown')[:12]} with {bundle[:12]}")
+        # The session's own environment: setup.sh finds the config directory and Claude Code's global config where
+        # Claude Code does, both moved by CLAUDE_CONFIG_DIR only when the session sets it.
         with open(LOG, "a") as output:
             subprocess.run(
                 ["bash", "-c", script], stdin=subprocess.DEVNULL, stdout=output, stderr=subprocess.STDOUT,
-                env={**os.environ, "ARIKKFIR_CLAUDE_BASE_URL": BASE_URL, "CLAUDE_CONFIG_DIR": CONFIG_DIR},
-                timeout=60, check=False,
+                env={**os.environ, "ARIKKFIR_CLAUDE_BASE_URL": BASE_URL}, timeout=60, check=False,
             )
     except Exception as error:  # never break the session because of this hook
         log(f"Could not refresh the bundle: {error!r}")
