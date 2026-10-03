@@ -41,30 +41,33 @@ spec:
           - 1.1.1.1
       automountServiceAccountToken: false
       enableServiceLinks: false
-  # Reserved once for all of a task's steps (step-level requests would add up as if the steps ran at once). setup
-  # clones two repositories and diffs one. review runs opencode, a Bun process that holds the whole session and runs
-  # ripgrep over the clones, while the model itself runs at DeepSeek; its github sidecar has its own resources.
-  # report only calls GitHub's API.
+  # Reserved once for all of a task's steps (step-level requests would add up as if the steps ran at once), and sized
+  # from the 18 reviews of 2026-10-02: requests near typical use, so concurrent reviews share a node instead of waiting
+  # for another, and limits well above the peaks. setup clones two repositories and diffs one (18 MiB at most). review
+  # runs opencode, a Bun process that holds the whole session and runs ripgrep over the clones, while the model itself
+  # runs at DeepSeek: 0.57 of a core on average, up to 0.93, and 620 MiB in 9 reviews of 10, 950 MiB at most. CPU is
+  # unlimited, so it uses idle cores beyond its request. Its github sidecar has its own resources. report only calls
+  # GitHub's API (18 MiB).
   taskRunSpecs:
     - pipelineTaskName: setup
       computeResources:
         requests:
-          cpu: 500m
-          memory: 512Mi
+          cpu: 100m
+          memory: 128Mi
         limits:
           memory: 1Gi
     - pipelineTaskName: review
       computeResources:
         requests:
-          cpu: "1"
-          memory: 2Gi
+          cpu: 500m
+          memory: 1Gi
         limits:
           memory: 4Gi
     - pipelineTaskName: report
       computeResources:
         requests:
-          cpu: 250m
-          memory: 256Mi
+          cpu: 50m
+          memory: 64Mi
         limits:
           memory: 512Mi
   workspaces:
