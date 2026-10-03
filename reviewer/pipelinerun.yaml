@@ -288,8 +288,9 @@ spec:
                 mkdir -p "${XDG_CONFIG_HOME}/opencode/node_modules"
                 echo '{"packages": {"": {"dependencies": {"@opencode-ai/plugin": "1.18.33"}}}}' \
                   > "${XDG_CONFIG_HOME}/opencode/package-lock.json"
-                # Low reasoning effort: the review is many short turns of reading and searching.
-                opencode run --pure --variant low --format default < ../.review/prompt.md
+                # Low reasoning effort: the review is many short turns of reading and searching. --thinking puts the
+                # reasoning in this step's log, the only record of it once the pod is gone.
+                opencode run --pure --variant low --format default --thinking < ../.review/prompt.md
             - name: check
               image: me-west1-docker.pkg.dev/arikkfir/images/reviewer:main
               imagePullPolicy: Always
@@ -325,7 +326,7 @@ spec:
                   echo "findings.json breaks these rules. Fix each one in findings.json, then read the file back:"
                   echo
                   sed 's/^/- /' ../.review/errors.txt
-                } | opencode run --pure --continue --variant low --format default
+                } | opencode run --pure --continue --variant low --format default --thinking
             - name: recheck
               image: me-west1-docker.pkg.dev/arikkfir/images/reviewer:main
               imagePullPolicy: Always

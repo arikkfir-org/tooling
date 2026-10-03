@@ -1428,6 +1428,14 @@ class ReviewPipelineRunTest(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertIn("--variant low", " ".join(args))
 
+    def test_the_model_logs_its_reasoning(self):
+        # The step's log is the only record of a review's reasoning: the pod and opencode's session go with it.
+        for step in ("review", "fix"):
+            with self.subTest(step=step):
+                result, args = self.run_model_step(step, mounted=None)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("--thinking", args)
+
     def test_the_model_works_in_the_checkout(self):
         # Steps start in the volume's root, made when the pod starts, and cd into the checkout clone makes.
         self.assertIn("\n          stepTemplate:\n            workingDir: $(workspaces.shared.path)\n", self.text)
