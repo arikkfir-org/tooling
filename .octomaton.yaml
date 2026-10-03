@@ -4,8 +4,8 @@ pipelines:
     displayName: Continuous Integration
     pipelineRun: .tekton/ci.yaml
     on:
-      pull_request:
-        branches: [main]
+      # Every pull request, whatever its base, so a stacked one is checked before it reaches main.
+      pull_request: {}
       merge_group: {}
     params:
       repo-url: "{{ .Repository.CloneURL }}"
@@ -56,8 +56,8 @@ organization:
       displayName: Docs
       pipelineRun: docs-site/check.yaml
       on:
-        pull_request:
-          branches: [main]
+        # Every pull request, whatever its base, so a stacked one is checked before it reaches main.
+        pull_request: {}
         merge_group: {}
       params:
         repository: "{{ .Repository.FullName }}"
