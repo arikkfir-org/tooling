@@ -823,6 +823,18 @@ class PipelineRunTest(unittest.TestCase):
         self.assertEqual(sorted(names), ["reviewer-deepseek-api-key", "reviewer-github-pat"])
         self.assertIsNone(re.search(r"secretName:|secretRef:|^\s*secret:", text, re.MULTILINE))
 
+    def test_every_task_requests_cpu_and_memory_and_limits_only_memory(self):
+        # CONTRIBUTING.md (arikkfir-org/docs): requests and a memory limit per task, CPU unlimited.
+        with open(os.path.join(REVIEWER_DIR, "pipelinerun.yaml"), encoding="utf-8") as f:
+            text = f.read()
+        specs = re.findall(r"- pipelineTaskName: (\S+)\n {6}computeResources:\n((?: {8}.*\n)+)", text)
+        tasks = re.findall(r"^ {6}- name: (\S+)\n", text[text.index("\n    tasks:\n"):], re.MULTILINE)
+        self.assertEqual(sorted(name for name, _ in specs), sorted(tasks))
+        for name, block in specs:
+            with self.subTest(task=name):
+                self.assertRegex(block, r"^ {8}requests:\n {10}cpu: \S+\n {10}memory: \S+\n"
+                                        r" {8}limits:\n {10}memory: \S+\n$")
+
 
 def step_script(step):
     """The script of a step in reviewer/pipelinerun.yaml."""
