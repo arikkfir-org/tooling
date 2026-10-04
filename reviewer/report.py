@@ -185,8 +185,8 @@ def verdict(findings):
 
 def review_body(summary, findings, resolved, extra, run):
     counts = tally(findings)
-    line = (f"🔴 {counts['blocking']} blocking · 🟡 {counts['non-blocking']} non-blocking · "
-            f"🔵 {nits(counts['nit'])} · {resolved} resolved")
+    line = (f"🔴 {counts['blocking']} high · 🟡 {counts['non-blocking']} medium · 🔵 {counts['nit']} low · "
+            f"{resolved} resolved")
     return "\n\n".join([summary.strip(), *extra, line, run_marker(run)])
 
 

@@ -728,7 +728,7 @@ class ReportTest(unittest.TestCase):
         self.assertEqual(fake.mutations[6][1]["input"]["body"], "**IAM-1**: no longer found at 0123456.")
         self.assertEqual(variables["SubmitReview"]["input"], {
             "pullRequestReviewId": "PRR_new", "event": "REQUEST_CHANGES",
-            "body": "What the change does.\n\n🔴 1 blocking · 🟡 1 non-blocking · 🔵 1 nit · 1 resolved\n\n"
+            "body": "What the change does.\n\n🔴 1 high · 🟡 1 medium · 🔵 1 low · 1 resolved\n\n"
                     f"<!-- reviewer-run:{RUN} -->",
         })
         self.assertEqual(title, "Changes requested: 1 blocking, 1 non-blocking, 1 nit")
