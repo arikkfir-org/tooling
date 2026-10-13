@@ -21,7 +21,8 @@ request reviewer (`reviewer/`), and the organization pipelines every repository 
 - `reviewer/`: Octomaton runs `reviewer/pipelinerun.yaml` from the default branch for every repository. Its Python is
   stdlib-only; cover every rule and review action in `tests/test_reviewer.py`.
 - `reviewer/report.py` holds `arikkfir-reviewer`'s token: it never runs or trusts anything from the shared volume, and
-  reads only `findings.json` there, as data.
+  reads only `findings.json` there, as data. Its step, the `review` task's last, is the only container with the token,
+  runs its own clone of this repository, and keeps `HOME` and its working directory off the volume.
 - The findings schema lives in `reviewer/prompt.md`, `reviewer/findings.py` and the design (`hub/designs/pr-reviewer.md`
   in `arikkfir-org/docs`). Change them together.
 - `docs-site/`: the docs site's organization pipelines (`docs`, `docs-publish`). Their runs take `docs-site/` from the

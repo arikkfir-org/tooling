@@ -3,10 +3,11 @@
 # repository. It sets spec.params and binds workspace github-token, an installation token that reads the code and pull
 # requests of every repository of the organization. review checks out the pull request's repository on the volume, with
 # pr.json, pr.diff and pr.log at its root, then has opencode write findings.json there (its github sidecar serves GitHub
-# to the model with the token, so the model clones any other repository it needs), and report posts them as one review
-# by arikkfir-reviewer. Every step and the sidecar run in the reviewer image, which has bash, git and python3
-# besides the model's tools, so a node pulls one image for a review. They run its main tag, which octomaton's
-# reviewer-image moves on every change, and pull it for every pod, so no node runs a main it cached earlier.
+# to the model with the token, so the model clones any other repository it needs), and its last step, report, posts
+# them as one review by arikkfir-reviewer: one pod per review. Every step and the sidecar run in the reviewer image,
+# which has bash, git and python3 besides the model's tools, so a node pulls one image for a review. They run its main
+# tag, which octomaton's reviewer-image moves on every change, and pull it for every pod, so no node runs a main it
+# cached earlier.
 apiVersion: tekton.dev/v1
 kind: PipelineRun
 metadata:
@@ -47,8 +48,8 @@ spec:
   # for another, and limits well above the peaks. review clones two repositories and diffs one (18 MiB at most), then
   # runs opencode, a Bun process that holds the whole session and runs ripgrep over the clones, while the model itself
   # runs at DeepSeek: 0.57 of a core on average, up to 0.93, and 620 MiB in 9 reviews of 10, 950 MiB at most. CPU is
-  # unlimited, so it uses idle cores beyond its request. Its github sidecar has its own resources. report only calls
-  # GitHub's API (18 MiB).
+  # unlimited, so it uses idle cores beyond its request. Its github sidecar has its own resources. The report step only
+  # calls GitHub's API (18 MiB), well within the task's.
   taskRunSpecs:
     - pipelineTaskName: review
       computeResources:
@@ -57,13 +58,6 @@ spec:
           memory: 1Gi
         limits:
           memory: 4Gi
-    - pipelineTaskName: report
-      computeResources:
-        requests:
-          cpu: 50m
-          memory: 64Mi
-        limits:
-          memory: 512Mi
   workspaces:
     - name: shared
       volumeClaimTemplate:
@@ -92,13 +86,15 @@ spec:
       - name: github-token
     results:
       - name: check-title
-        value: $(tasks.report.results.check-title)
+        value: $(tasks.review.results.check-title)
       - name: check-summary
-        value: $(tasks.report.results.check-summary)
+        value: $(tasks.review.results.check-summary)
     tasks:
       - name: review
+        # A failure retries the task, the model's run included: github.py retries each of report's requests itself,
+        # so only an outage or a refusal (the head moved, which supersedes the run anyway) gets this far.
         retries: 1
-        timeout: 45m
+        timeout: 55m
         workspaces:
           - name: shared
             workspace: shared
@@ -117,6 +113,8 @@ spec:
             value: $(params.base-ref)
           - name: reviewer
             value: $(params.reviewer)
+          - name: run
+            value: $(context.pipelineRun.name)
         taskSpec:
           params:
             - name: repository
@@ -131,11 +129,18 @@ spec:
               type: string
             - name: reviewer
               type: string
+            - name: run
+              type: string
           workspaces:
             - name: shared
             # Outside /workspace, which every step shares: a mount point there would show in the model's steps too.
             - name: github-token
               mountPath: /var/run/github-token
+          results:
+            - name: check-title
+              type: string
+            - name: check-summary
+              type: string
           # The token is mounted only where a step or sidecar names it (Tekton's isolated workspaces, a beta feature;
           # without it the run is refused): in clone and state, which run before the model, and in the github sidecar.
           # The model reaches GitHub through the sidecar on 127.0.0.1:8080 (reviewer/github_proxy.py), never with the
@@ -335,83 +340,43 @@ spec:
                 set -eu
                 cd "${NAME}"
                 python3 ../.review/findings.py check --strict --state pr.json --findings findings.json
-      - name: report
-        runAfter:
-          - review
-        retries: 2
-        timeout: 10m
-        workspaces:
-          - name: shared
-            workspace: shared
-        params:
-          - name: repository
-            value: $(params.repository)
-          - name: name
-            value: $(params.name)
-          - name: number
-            value: $(params.number)
-          - name: revision
-            value: $(params.revision)
-          - name: run
-            value: $(context.pipelineRun.name)
-        taskSpec:
-          params:
-            - name: repository
-              type: string
-            - name: name
-              type: string
-            - name: number
-              type: string
-            - name: revision
-              type: string
-            - name: run
-              type: string
-          workspaces:
-            - name: shared
-              readOnly: true
-          results:
-            - name: check-title
-              type: string
-            - name: check-summary
-              type: string
-          # The model could have rewritten anything on the volume, so report runs its own copy of tooling's default
-          # branch and reads only findings.json from the volume, as data.
-          volumes:
-            - name: tools
-              emptyDir: {}
-          stepTemplate:
-            volumeMounts:
-              - name: tools
-                mountPath: /tools
-          steps:
-            - name: fetch
-              image: me-west1-docker.pkg.dev/arikkfir/images/reviewer:main
-              imagePullPolicy: Always
-              script: |
-                #!/bin/sh
-                set -eu
-                git clone --quiet --depth 1 https://github.com/arikkfir-org/tooling.git /tools/tooling
+            # The task's last step posts findings.json as one review by arikkfir-reviewer, so a review is one pod: no
+            # second pod to schedule and no volume to move to it (50 s in half the reviews). Only this container holds
+            # the reviewer's token, in its environment, which the model's containers can't read (the pod shares no
+            # process namespace), and it starts its work after they are gone. The model could have rewritten anything
+            # on the volume, so the step takes nothing from it but findings.json, as data: it runs report.py from its
+            # own fresh clone of tooling's default branch in its container's filesystem, with HOME and the XDG
+            # directories there too (git and python read configuration under HOME), and python without user
+            # site-packages or PYTHON* variables (-s -E), so no .gitconfig, sitecustomize.py or the like written on
+            # the volume reaches it.
             - name: report
               image: me-west1-docker.pkg.dev/arikkfir/images/reviewer:main
               imagePullPolicy: Always
+              workingDir: /tmp
               env:
                 - name: GITHUB_TOKEN
                   valueFrom:
                     secretKeyRef:
                       name: reviewer-github-pat
                       key: token
-                - name: REPOSITORY
-                  value: $(params.repository)
-                - name: NUMBER
-                  value: $(params.number)
-                - name: REVISION
-                  value: $(params.revision)
                 - name: RUN
                   value: $(params.run)
+                - name: HOME
+                  value: /tmp/home
+                - name: XDG_CONFIG_HOME
+                  value: /tmp/home/.config
+                - name: XDG_DATA_HOME
+                  value: /tmp/home/.local/share
+                - name: XDG_STATE_HOME
+                  value: /tmp/home/.local/state
+                - name: XDG_CACHE_HOME
+                  value: /tmp/home/.cache
               script: |
                 #!/bin/sh
                 set -eu
-                exec python3 /tools/tooling/reviewer/report.py --repository "${REPOSITORY}" --number "${NUMBER}" \
+                mkdir -p "${HOME}"
+                git clone --quiet --depth 1 https://github.com/arikkfir-org/tooling.git /tmp/tooling
+                exec python3 -s -E /tmp/tooling/reviewer/report.py --repository "${REPOSITORY}" --number "${NUMBER}" \
                   --revision "${REVISION}" --run "${RUN}" \
                   --findings "$(workspaces.shared.path)/$(params.name)/findings.json" \
                   --title-file "$(results.check-title.path)" --summary-file "$(results.check-summary.path)"

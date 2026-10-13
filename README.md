@@ -73,7 +73,7 @@ review, with a thread per finding. Details are in the
 
 | File | Purpose |
 | --- | --- |
-| [`reviewer/pipelinerun.yaml`](reviewer/pipelinerun.yaml) | The PipelineRun: tasks `review` and `report` |
+| [`reviewer/pipelinerun.yaml`](reviewer/pipelinerun.yaml) | The PipelineRun: task `review`, whose last step `report` posts the review |
 | [`reviewer/prompt.md`](reviewer/prompt.md) | The reviewer's instructions, with the `findings.json` schema |
 | [`reviewer/opencode.json`](reviewer/opencode.json) | opencode's configuration: the model, no sharing, every tool allowed but subagents |
 | [`reviewer/state.py`](reviewer/state.py) | Writes `pr.json`: the pull request, its files, and the conversation, reviews and threads of people with write access only |
@@ -83,9 +83,9 @@ review, with a thread per finding. Details are in the
 
 Pipeline `review` is an organization pipeline, declared once in this repository's `.octomaton.yaml` (below), so every
 repository has it. Octomaton reads `reviewer/pipelinerun.yaml` from this repository's default branch, and the scripts
-and the prompt run from the default branch too: `review`'s `clone` step extracts `reviewer/` from it, and `report`
-clones its own copy. So no pull request, here or elsewhere, changes its own review; a change here takes effect once
-merged.
+and the prompt run from the default branch too: the `clone` step extracts `reviewer/` from it, and the `report` step
+clones its own copy, in its own container. So no pull request, here or elsewhere, changes its own review; a change here
+takes effect once merged.
 
 Every step, the model's included, runs in the reviewer image, `me-west1-docker.pkg.dev/arikkfir/images/reviewer`
 (opencode plus bash, python3, git, jq, yq, curl, wget and GNU userland), which `arikkfir-org/octomaton` builds from
@@ -93,7 +93,8 @@ Every step, the model's included, runs in the reviewer image, `me-west1-docker.p
 pod, so a change there reaches the next review. Octomaton mints the run's token for every repository of the organization, reading code and pull
 requests only. In `review`, only the `clone` and `state` steps, which run before the model, and the `github` sidecar
 mount it, so the model reads other repositories' code and pull requests (an internal one's too) through the sidecar,
-never with the token.
+never with the token. `arikkfir-reviewer`'s token is in the `report` step's container alone, which starts its work once
+the model's steps are done and takes nothing from the volume but `findings.json`.
 
 ## Docs site
 

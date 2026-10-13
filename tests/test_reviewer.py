@@ -823,6 +823,33 @@ class PipelineRunTest(unittest.TestCase):
         self.assertEqual(sorted(set(names)), ["reviewer-deepseek-api-key", "reviewer-github-pat"])
         self.assertIsNone(re.search(r"secretName:|secretRef:|^\s*secret:", text, re.MULTILINE))
 
+    def test_only_report_holds_the_reviewers_token(self):
+        # The model's steps run in the same pod as report and must never see its token: it is in report's container
+        # alone, as the DeepSeek key is in review's and fix's.
+        blocks = step_blocks()
+        self.assertEqual(list(blocks), ["github", "clone", "state", "review", "check", "fix", "recheck", "report"])
+        self.assertEqual([name for name, block in blocks.items() if "reviewer-github-pat" in block], ["report"])
+        self.assertEqual([name for name, block in blocks.items() if "reviewer-deepseek-api-key" in block],
+                         ["review", "fix"])
+        self.assertEqual([name for name, block in blocks.items() if "- name: github-token" in block],
+                         ["github", "clone", "state"])
+
+    def test_report_takes_only_findings_from_the_volume(self):
+        # The model could have rewritten anything on the volume: report runs its own clone of tooling in its container,
+        # with HOME (git's and python's configuration) and its working directory there too, python without user
+        # site-packages or PYTHON* variables, and names the volume once, for findings.json.
+        block = step_blocks()["report"]
+        self.assertIn("\n              workingDir: /tmp\n", block)
+        for name, value in (("HOME", "/tmp/home"), ("XDG_CONFIG_HOME", "/tmp/home/.config"),
+                            ("XDG_DATA_HOME", "/tmp/home/.local/share"), ("XDG_STATE_HOME", "/tmp/home/.local/state"),
+                            ("XDG_CACHE_HOME", "/tmp/home/.cache")):
+            self.assertRegex(block, rf"- name: {name}\n +value: {re.escape(value)}\n")
+        script = step_script("report")
+        self.assertIn("git clone --quiet --depth 1 https://github.com/arikkfir-org/tooling.git /tmp/tooling\n", script)
+        self.assertIn("exec python3 -s -E /tmp/tooling/reviewer/report.py ", script)
+        self.assertEqual(re.findall(r"\$\(workspaces\.shared\.path\)[^\s\"]*", script),
+                         ["$(workspaces.shared.path)/$(params.name)/findings.json"])
+
     def test_every_task_requests_cpu_and_memory_and_limits_only_memory(self):
         # CONTRIBUTING.md (arikkfir-org/docs): requests and a memory limit per task, CPU unlimited.
         with open(os.path.join(REVIEWER_DIR, "pipelinerun.yaml"), encoding="utf-8") as f:
@@ -842,6 +869,24 @@ def step_script(step):
         text = f.read()
     block = re.search(rf"^( +)- name: {step}\n(?:\1  .*\n)*?\1  script: \|\n((?:\1    .*\n|\n)+)", text, re.MULTILINE)
     return textwrap.dedent(block.group(2))
+
+
+def step_blocks():
+    """Each container's block of reviewer/pipelinerun.yaml (the sidecar's and every step's), by name: its `- name:`
+    line and the lines indented beneath it."""
+    with open(os.path.join(REVIEWER_DIR, "pipelinerun.yaml"), encoding="utf-8") as f:
+        lines = f.read().splitlines(keepends=True)
+    blocks, name = {}, None
+    for line in lines:
+        head = re.match(r"^ {12}- name: (\S+)\n", line)
+        if head:
+            name = head.group(1)
+            blocks[name] = line
+        elif name and (line.startswith(" " * 14) or line == "\n"):
+            blocks[name] += line
+        else:
+            name = None
+    return {name: block for name, block in blocks.items() if "\n              image: " in block}
 
 
 class FakeGitServer(http.server.ThreadingHTTPServer):
@@ -1342,7 +1387,7 @@ class ReviewPipelineRunTest(unittest.TestCase):
         images = re.findall(r"image: (\S+)", self.text)
         steps = re.findall(r"^ +- name: \S+\n( +)image: \S+\n\1imagePullPolicy: Always\n", self.text, re.MULTILINE)
         self.assertEqual(len(images), len(steps))
-        self.assertEqual(len(images), 9)  # review's 6 steps and its sidecar, report's 2
+        self.assertEqual(len(images), 8)  # review's 7 steps and its sidecar
         self.assertEqual(set(images), {"me-west1-docker.pkg.dev/arikkfir/images/reviewer:main"})
 
     def review_steps(self):
