@@ -14,6 +14,7 @@ import base64
 import http.client
 import http.server
 import re
+import signal
 import sys
 import urllib.parse
 
@@ -234,6 +235,10 @@ def main(argv=None):
     parser.add_argument("--port", type=int, default=PORT)
     args = parser.parse_args(argv)
     server = Server(args.token_file, args.port)
+    # Tekton stops the sidecar once the steps are done by swapping its image, which the kubelet does with SIGTERM.
+    # The process is PID 1 in its container, and PID 1 gets no default action for a signal, so without a handler it
+    # lived on until the 30 s grace period's SIGKILL, holding the pod and the volume that long after every review.
+    signal.signal(signal.SIGTERM, lambda signum, frame: sys.exit(0))
     print(f"Serving GitHub on http://127.0.0.1:{server.server_port}", file=sys.stderr, flush=True)
     server.serve_forever()
 

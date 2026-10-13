@@ -8,6 +8,7 @@ import json
 import os
 import re
 import shutil
+import signal
 import socket
 import subprocess
 import sys
@@ -1168,6 +1169,17 @@ class GitHubProxyTest(unittest.TestCase):
         os.remove(self.token_file)
         self.assertEqual(self.request("GET", "/api/user")[0], 503)
         self.assertEqual(self.api.requests, [])
+
+    def test_exits_on_sigterm(self):
+        # The sidecar is PID 1 in its container: Tekton's stop (SIGTERM) must end it at once, not after the 30 s grace
+        # period, which held the pod and its volume after every review.
+        process = subprocess.Popen([sys.executable, os.path.join(REVIEWER_DIR, "github_proxy.py"),
+                                    "--token-file", self.token_file, "--port", "0"],
+                                   stderr=subprocess.PIPE, text=True)
+        self.addCleanup(process.kill)
+        self.assertIn("Serving GitHub on http://127.0.0.1:", process.stderr.readline())
+        process.send_signal(signal.SIGTERM)
+        self.assertEqual(process.wait(timeout=10), 0)
 
     def test_responses_pass_through(self):
         status, headers, body = self.request("GET", "/api/missing")
