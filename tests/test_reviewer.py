@@ -1038,14 +1038,31 @@ class RoundTest(unittest.TestCase):
     def test_a_large_change_is_reviewed_whole(self):
         head = self.commit({"a.txt": "a\n" * 45}, "Fifteen more lines")
         text = self.compose(self.state(head, [self.review(self.reviewed)], {"a.txt": 23, "b.txt": 2}))
-        self.assertIn("It has changed by 15 lines since, in the files it touches, which is more than 300 lines or "
-                      "half of the 25 lines it changes. Review the whole pull request again", text)
+        self.assertRegex(text, r"It has changed by 15 lines \([\d,]+ bytes of diff\) since, in the files it touches: "
+                               r"more than 300 lines, half of the 25 lines it changes, or 200,000 bytes\. Review the "
+                               r"whole pull request again")
         self.assertIn("## b.txt", text[text.index("# The changed files at the commit under review"):])
 
     def test_more_lines_than_the_limit_are_reviewed_whole(self):
         head = self.commit({"a.txt": "a\n" * 30 + "c\n" * (brief.INCREMENTAL_MAX_LINES + 1)}, "Many lines")
         text = self.compose(self.state(head, [self.review(self.reviewed)], {"a.txt": 10_000}))
-        self.assertIn(f"It has changed by {brief.INCREMENTAL_MAX_LINES + 1} lines since", text)
+        self.assertIn(f"It has changed by {brief.INCREMENTAL_MAX_LINES + 1} lines (", text)
+
+    def test_a_diff_over_the_size_limit_is_reviewed_whole(self):
+        # A line limit alone would embed a one-line change to a minified file whole, however long its lines.
+        head = self.commit({"a.txt": "a\n" * 30 + "x" * brief.DIFF_LIMIT + "\n"}, "One long line")
+        text = self.compose(self.state(head, [self.review(self.reviewed)], {"a.txt": 1_000}))
+        self.assertIn("It has changed by 1 lines (", text)
+        self.assertNotIn("x" * 1_000, text)
+
+    def test_lines_that_look_like_file_headers_are_counted(self):
+        # Added "++more" and removed "--b" show in the diff as "+++more" and "---b", like its file headers.
+        self.commit({"b.txt": "--b\n" + "b\n" * 11}, "A line like a header")
+        reviewed = self.git("rev-parse", "HEAD")
+        head = self.commit({"a.txt": "a\n" * 30 + "++more\n", "b.txt": "b\n" * 11}, "Lines like headers")
+        text = self.compose(self.state(head, [self.review(reviewed)], {"a.txt": 22, "b.txt": 2}))
+        self.assertIn("Since then it has changed by 2 of the 24 lines it changes, in these files: `a.txt`, `b.txt`.",
+                      text)
 
     def test_a_rebased_away_commit_is_reviewed_whole(self):
         head = self.commit({"a.txt": "a\n" * 32}, "More")

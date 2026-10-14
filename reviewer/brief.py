@@ -25,7 +25,7 @@ import stat
 import subprocess
 import sys
 
-DIFF_LIMIT = 200_000  # bytes of pr.diff
+DIFF_LIMIT = 200_000  # bytes of pr.diff, and of the change since the last review
 LOG_LIMIT = 50_000  # bytes of pr.log
 RULES_LIMIT = 64_000  # bytes of each rules file
 FILE_LIMIT = 48_000  # bytes of each changed file
@@ -175,10 +175,6 @@ def git(checkout, *args):
                           errors="replace")
 
 
-def changed_lines(diff):
-    return sum(1 for line in diff.splitlines() if line[:1] in "+-" and not line.startswith(("+++", "---")))
-
-
 def last_review(state):
     """The reviewer's latest submitted review, or None."""
     reviewer = (state.get("reviewer") or "").lower()
@@ -208,13 +204,15 @@ def this_round(state, checkout, remote=None):
     paths.update(line for line in before.stdout.splitlines() if line)
     diff = git(checkout, "diff", since, revision, "--", *sorted(paths))
     names = git(checkout, "diff", "--name-only", since, revision, "--", *sorted(paths))
-    if any(run.returncode for run in (before, diff, names)):
+    counts = git(checkout, "diff", "--shortstat", since, revision, "--", *sorted(paths))
+    if any(run.returncode for run in (before, diff, names, counts)):
         return {**found, "mode": "full", "why": "failed"}
     diff, files = diff.stdout, [line for line in names.stdout.splitlines() if line]
-    lines = changed_lines(diff)
+    lines = sum(int(n) for n in re.findall(r"(\d+) (?:insertion|deletion)", counts.stdout))
+    size = len(diff.encode())
     total = sum((file.get("additions") or 0) + (file.get("deletions") or 0) for file in state.get("files") or [])
-    found.update(diff=diff, files=files, lines=lines, total=total)
-    if lines > INCREMENTAL_MAX_LINES or (total and lines * 2 > total):
+    found.update(diff=diff, files=files, lines=lines, size=size, total=total)
+    if lines > INCREMENTAL_MAX_LINES or (total and lines * 2 > total) or size > DIFF_LIMIT:
         return {**found, "mode": "full", "why": "large"}
     return {**found, "mode": "incremental"}
 
@@ -231,8 +229,9 @@ def round_section(found, revision):
         elif found["why"] == "failed":
             why = f"{when}, but git couldn't work out what changed since."
         else:
-            why = (f"{when}. It has changed by {found['lines']} lines since, in the files it touches, which is more "
-                   f"than {INCREMENTAL_MAX_LINES} lines or half of the {found['total']} lines it changes.")
+            why = (f"{when}. It has changed by {found['lines']} lines ({found['size']:,} bytes of diff) since, in the "
+                   f"files it touches: more than {INCREMENTAL_MAX_LINES} lines, half of the {found['total']} lines it "
+                   f"changes, or {DIFF_LIMIT:,} bytes.")
         return ["# This round", "", f"{why} Review the whole pull request again, as on a first round, and every "
                 "earlier thread with its replies.", ""]
     files = ", ".join(f"`{name}`" for name in found["files"]) or "none"
