@@ -203,11 +203,11 @@ def this_round(state, checkout, remote=None):
     before = git(checkout, "diff", "--name-only", f"origin/{state['baseRef']}...{since}")
     paths.update(line for line in before.stdout.splitlines() if line)
     diff = git(checkout, "diff", since, revision, "--", *sorted(paths))
-    names = git(checkout, "diff", "--name-only", since, revision, "--", *sorted(paths))
+    names = git(checkout, "diff", "--name-only", "-z", since, revision, "--", *sorted(paths))
     counts = git(checkout, "diff", "--shortstat", since, revision, "--", *sorted(paths))
     if any(run.returncode for run in (before, diff, names, counts)):
         return {**found, "mode": "full", "why": "failed"}
-    diff, files = diff.stdout, [line for line in names.stdout.splitlines() if line]
+    diff, files = diff.stdout, [name for name in names.stdout.split("\0") if name]
     lines = sum(int(n) for n in re.findall(r"(\d+) (?:insertion|deletion)", counts.stdout))
     size = len(diff.encode())
     total = sum((file.get("additions") or 0) + (file.get("deletions") or 0) for file in state.get("files") or [])

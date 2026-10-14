@@ -1035,6 +1035,13 @@ class RoundTest(unittest.TestCase):
         self.assertIn("Since then it has changed by 3 of the 25 lines it changes, in these files: `:(exclude)*`, "
                       "`a.txt`.", text)
 
+    def test_a_file_name_git_would_quote_is_attached(self):
+        # git quotes a name that isn't plain ASCII ("caf\303\251.txt") unless asked for raw names.
+        head = self.commit({"a.txt": "a\n" * 31, "café.txt": "c\n"}, "One more line and an accented name")
+        text = self.compose(self.state(head, [self.review(self.reviewed)], {"a.txt": 21, "b.txt": 2, "café.txt": 1}))
+        self.assertIn("in these files: `a.txt`, `café.txt`.", text)
+        self.assertIn("## café.txt", text[text.index("# The files changed since your last review"):])
+
     def test_a_large_change_is_reviewed_whole(self):
         head = self.commit({"a.txt": "a\n" * 45}, "Fifteen more lines")
         text = self.compose(self.state(head, [self.review(self.reviewed)], {"a.txt": 23, "b.txt": 2}))

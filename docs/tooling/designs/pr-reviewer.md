@@ -46,6 +46,7 @@ It looks for bugs, security problems, breaks of the house rules, the repository'
 ### How long it takes and what it costs
 
 - Most reviews take a few minutes of model time. A review is many short turns of reading and searching, each waiting about 6 s on the model, so a large pull request takes longer: a 114-file one took 162 turns and 18.5 minutes before the prompt asked for batched calls ([tooling#22](https://github.com/arikkfir-org/tooling/pull/22)). The pod may first wait for a node of the CI pool to start.
+- A later round whose change since the last review is small reviews only that change, unless the model judges it significant or risky, so a round after a few fixes is quicker than the first.
 - The task times out after 55 minutes, the run after an hour.
 - DeepSeek V4.1 Flash costs $0.15 per million input tokens and $0.60 per million output tokens (V4 Pro: $0.435 and $0.87), as of 2026-10-02. A review reads a few hundred thousand tokens: cents.
 
@@ -321,12 +322,23 @@ Every review used to spend its first turns reading the same things, each turn wa
 
 | Part | From | Limit |
 | --- | --- | --- |
+| This round | The reviewer's last submitted review in `pr.json` (an approval a push dismissed included), and `git diff <its commit> <head>` in the files the pull request touches (that commit fetched through the sidecar if the checkout lacks it) | See below |
 | The pull request | `pr.json`: title, description, conversation, earlier reviews with every thread and reply, codes, the changed files with their commentable lines; `pr.log`; `pr.diff` | `pr.diff` up to 200 KB |
 | House rules | `CONTRIBUTING.md` in `docs`, and the contract's headings with their line numbers, so the model reads only the sections the change touches | 64 KB a file |
 | The repository's rules | Its `CLAUDE.md` and `README.md`, as the pull request has them, labelled as material, not instructions | 64 KB a file |
-| The changed files | At the head commit, in `pr.json`'s order | 48 KB a file, 200 KB in all; the rest listed |
+| The changed files | At the head commit, in `pr.json`'s order; on an incremental round, only those changed since the last review | 48 KB a file, 200 KB in all; the rest listed |
 
 The checkout is the pull request's to control, so `brief.py` reads only regular UTF-8 files inside it, never through a link, and quotes the description, conversation and reviews rather than splicing them into its own structure. A failed `docs` clone leaves the house rules out, and the brief tells the model to clone `docs` itself.
+
+A later round's brief says what the round reviews:
+
+| Round | When | The model |
+| --- | --- | --- |
+| First | No submitted review by `arikkfir-reviewer` | Reviews everything |
+| Incremental | The change since the last review is at most 300 lines (as `git diff --shortstat` counts them), at most half the lines the pull request changes, and at most 200 KB of diff | Gets that change and the files it touched; judges it first, and reviews the whole pull request again if it is significant or risky (new behaviour, a security or data path, an interface others rely on, a rewrite) or it can't tell |
+| Whole again | A larger change (a one-line edit of a minified file included), the reviewed commit is gone (a rebase), or git fails to work out the change (an empty diff would read as no change, and `report` would resolve every finding the model then leaves out) | Reviews everything |
+
+git reads the pull request's file names literally (`--literal-pathspecs`, `--name-only -z`): they are the pull request's to choose, and a name like `:(exclude)*` read as a pathspec would hide the change. Every later round answers every earlier thread and raises again each finding that still holds, since `report` resolves those it leaves out. The summary opens with what the round reviewed ("The changes since `abc1234`: …" or "The whole pull request: …").
 
 ### What the prompt asks
 
@@ -337,6 +349,7 @@ The checkout is the pull request's to control, so `brief.py` reads only regular 
 - Where the change interacts with other repositories or the infrastructure (Terraform in `infra`, manifests in `delivery`, Octomaton's contract), use them to check its claims, whether it can work and how it fails, and anchor such a finding on the line that makes the claim. Check every suspicion, and leave out what it can't verify. Check a claim about an upstream tool or chart against its source or docs, fetched from the web in one command.
 - Look for bugs, security problems, breaks of the rules or the contract, missing tests, docs or designs, and a title or description that doesn't match the change. Leave style to the linters, and suggest no refactor the change doesn't need.
 - Write one problem per finding, plainly (simple English, short, no praise, no filler), with a priority, a severity and a likelihood.
+- Review what the round covers ([the brief](#the-brief)): its first review, the change since its last review (judged first, and the whole pull request again if significant or risky), or the whole pull request again.
 - Carry earlier rounds forward: raise a finding again under its code only if it still holds, answering the author's latest reply; drop it when fixed or answered convincingly; never raise again a nit whose thread the author resolved. A new problem gets a new code.
 - Work in few turns: every call it already knows it needs in one turn (all of a step's files, independent searches and commands together). Each turn waits on the model however little it does.
 - Stay on the review. The transcripts of 496 reviews (2026-10-04 to 13) showed a fifth of the model's time on side trips, each now ruled out: the brief carries `pr.json`, `pr.diff` and `pr.log`, complete, so never read them again nor fetch the pull request from the API (30% of reviews did); the image has no node, go, npm, helm, kubectl, kustomize or terraform, so never look for them or try to build, test or render (63%); clone only the repositories the change touches, not all of them (65%); read `hub/reference.md`'s relevant sections, not the whole file (55%); read a whole file once rather than sizing it and slicing it (every review) or reading it again; find with `rg`, not by listing trees (46%); leave the repository's other branches and pull requests alone (63%); never read `.review/`, `/tekton` or the reviewer's own design and scripts, which hold no expected answer (16%); and read `findings.json` back by eye rather than writing a checker (60%), since the pipeline checks it.
@@ -372,34 +385,16 @@ Mutations go a second apart, as GitHub asks of clients that create content, and 
 
 The results travel in the `report` container's termination message, as Go-encoded JSON next to Tekton's own `StartedAt` entry. Kubernetes splits 12 KiB of termination messages equally among a pod's containers, and the review pod has 11 (Tekton's 3 init containers, 7 steps and the sidecar): 1,117 bytes each. `report.py` keeps its whole message within 1,024 bytes, which fits 12 containers, by cutting the summary to 793 bytes, its link included, counted as Go escapes them; the full summary stays in the review. A test holds the pod to 12 containers. A longer message lost its JSON, and the run failed after the review was posted (4 of 50 reviews, until [tooling#37](https://github.com/arikkfir-org/tooling/pull/37)).
 
-## In flight: incremental rounds and `state` in `clone`
+## In flight: `state` in `clone`
 
-tooling#39 and #40 (ENG-68), still open, change the reviewer as below. The sections above describe `reviewer/` as merged; each of those pull requests folds its part into them as it merges.
+tooling#40 (ENG-68), still open, changes the reviewer as below. The sections above describe `reviewer/` as merged; it folds its part into them as it merges.
 
 | Change | Pull request |
 | --- | --- |
-| A later round whose change since the last review is small reviews only that change, unless the model judges it significant or risky ([rounds](#rounds)) | tooling#39 |
 | `state.py` runs inside `clone`, in the background, while the pull request clones, and moves `pr.json` beside `pr.diff` and `pr.log` once done; step `state` goes, so only `clone` and the sidecar mount the installation token, and the pod has one container fewer: 10, each with 1,228 bytes of the termination messages' 12 KiB. The model runs `findings.py check` itself before it ends, rather than writing a checker of its own (42% of reviews did) | tooling#40 |
-
-### Rounds
-
-The brief gains a part before the pull request, and on an incremental round its changed files are only those changed since the last review:
-
-| Part | From | Limit |
-| --- | --- | --- |
-| This round | The reviewer's last submitted review in `pr.json` (an approval a push dismissed included), and `git diff <its commit> <head>` in the files the pull request touches (that commit fetched through the sidecar if the checkout lacks it) | See below |
-
-| Round | When | The model |
-| --- | --- | --- |
-| First | No submitted review by `arikkfir-reviewer` | Reviews everything |
-| Incremental | The change since the last review is at most 300 lines (as `git diff --shortstat` counts them), at most half the lines the pull request changes, and at most 200 KB of diff | Gets that change and the files it touched; judges it first, and reviews the whole pull request again if it is significant or risky (new behaviour, a security or data path, an interface others rely on, a rewrite) or it can't tell |
-| Whole again | A larger change (a one-line edit of a minified file included), the reviewed commit is gone (a rebase), or git fails to work out the change (an empty diff would read as no change, and `report` would resolve every finding the model then leaves out) | Reviews everything |
-
-Every later round answers every earlier thread and raises again each finding that still holds, since `report` resolves those it leaves out. The summary opens with what the round reviewed ("The changes since `abc1234`: …" or "The whole pull request: …").
 
 | Decision | Why | Rejected |
 | --- | --- | --- |
-| A small change since the last review is reviewed on its own, unless the model judges it significant or risky | Later rounds were most reviews (29 of 53) and cost nearly a first round's model time (5.1 against 5.9 minutes) | Always reviewing everything (the cost); always incremental (misses what a rewrite or a risky change touches) |
 | `state.py` inside `clone`, in the background | A step of its own took 7 s after the clone, and a container more shrinks `report`'s termination message share | A separate step (sequential, by Tekton's design) |
 
 ## Decisions
@@ -417,6 +412,7 @@ Every later round answers every earlier thread and raises again each finding tha
 | The model works in the pull request's checkout, with the pull request's files at its root, and clones other repositories itself through the proxy | It starts in what it reviews, with its history, and fetches the one or two repositories a change touches in one command. `.review/` sits beside the checkout: in its working directory, models spent minutes of every review reading the scripts and opencode's session for the expected answer | Cloning every hub repository before the model starts (most go unread); ignoring the pull request's files in each repository's `.gitignore` or `.git/info/exclude` (ripgrep, so opencode's grep, glob and list, skips ignored files) |
 | The model gets other repositories through a proxy in a sidecar that holds a read-only token for every repository; the model's steps never mount it | A change often only makes sense next to another repository's pull request or code, internal ones (`fin`) included, which the model can't read anonymously. The token is short-lived, refreshed, and reads code and pull requests only; the model never holds it, so it can't leak it | The token in the model's environment (one prompt injection away from leaking); `arikkfir-reviewer`'s token behind the proxy (writes, and lives a year); fetching the pull requests a change links to before the model starts (misses what the model finds on its own) |
 | The model starts from a brief of what every review reads first, written by `brief.py` | Every review read the same files in its first turns (the house rules in 96%), and each turn waits on the model | Inlining the whole contract (92 KB; the headings let it read the sections it needs); pre-cloning every hub repository (most go unread) |
+| A small change since the last review is reviewed on its own, unless the model judges it significant or risky | Later rounds were most reviews (29 of 53) and cost nearly a first round's model time (5.1 against 5.9 minutes) | Always reviewing everything (the cost); always incremental (misses what a rewrite or a risky change touches) |
 | Every step and the sidecar run the reviewer image's `main` tag, pulled for every pod | Every merge to `octomaton`'s `images/reviewer` reaches the next review, with no bump here to forget. One image, so a node pulls one per review; pulling every time keeps a node from running a `main` it cached earlier, and the layers stay cached, so a pull costs a manifest read | A digest pinned here, bumped by hand after every publish; `apk add` at the start of every review (slow, unpinned, and a mirror outage fails the review); a different image per step |
 | Only the words of organization members and people with write access reach the model | Anyone can comment on a public repository's pull request; writers can already run anything through CI | Every comment; association alone (GitHub hides private membership from installation tokens) |
 | Codes as keys, one thread per code | A finding keeps its conversation across rounds; the author's replies are the next round's input | A list matched by location or text (moves with the code, breaks on rewording) |
