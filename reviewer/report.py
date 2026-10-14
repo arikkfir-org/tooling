@@ -9,6 +9,7 @@ Usage: report.py --repository OWNER/NAME --number N --revision SHA --run PIPELIN
 """
 
 import argparse
+import json
 import os
 import sys
 import time
@@ -20,8 +21,16 @@ import state
 PRIORITIES = findings.PRIORITIES
 CIRCLES = {"blocking": "🔴", "non-blocking": "🟡", "nit": "🔵"}
 WHOLE = "About the pull request as a whole."
-# Check run results travel in the TaskRun's termination message, which holds 4 KiB in all.
-MAX_SUMMARY_BYTES = 2500
+# The check run's title and summary are the report step's Tekton results, which travel in its container's termination
+# message as Go-encoded JSON: [{"key":"check-summary","value":…,"type":1},{"key":"check-title","value":…,"type":1}].
+# Kubernetes splits 12 KiB of termination messages equally among a pod's containers, the review pod's 11 among them
+# (Tekton's 3 init containers, 7 steps and the github sidecar), and cuts each message at its share: 1,117 bytes. A
+# longer message is no longer JSON, Tekton records no results, and the run fails though the review was posted.
+# MAX_RESULTS_BYTES fits 12 containers, and a test holds the pod to that many.
+MAX_RESULTS_BYTES = 1024
+RESULTS_FRAME = '[{"key":"check-summary","value":"","type":1},{"key":"check-title","value":"","type":1}]'
+MAX_TITLE_BYTES = 80
+MAX_SUMMARY_BYTES = MAX_RESULTS_BYTES - len(RESULTS_FRAME) - MAX_TITLE_BYTES
 
 CONTEXT_QUERY = """
 query Context($owner: String!, $name: String!, $number: Int!) {
@@ -190,12 +199,27 @@ def review_body(summary, findings, resolved, extra, run):
     return "\n\n".join([summary.strip(), *extra, line, run_marker(run)])
 
 
+def escaped_bytes(text):
+    """The bytes text takes as a string in the termination message, as Go's encoding/json writes it: Python's escaping,
+    but for <, > and & (\\u003c and the like), U+2028 and U+2029 (\\u2028, \\u2029), and backspace and form feed
+    (\\u0008, \\u000c), which Python writes shorter."""
+    size = len(json.dumps(text, ensure_ascii=False)[1:-1].encode())
+    return size + sum({"<": 5, ">": 5, "&": 5, "\u2028": 3, "\u2029": 3, "\b": 4, "\f": 4}.get(c, 0) for c in text)
+
+
 def check_summary(summary, url):
+    """The review's summary and a link to it, cut to MAX_SUMMARY_BYTES as the termination message counts them."""
     link = f"\n\n[The review on GitHub]({url})"
     text = summary.strip()
-    budget = MAX_SUMMARY_BYTES - len(link.encode())
-    if len(text.encode()) > budget:
-        text = text.encode()[:budget - 3].decode("utf-8", "ignore") + "…"
+    budget = MAX_SUMMARY_BYTES - escaped_bytes(link)
+    if escaped_bytes(text) > budget:
+        budget -= escaped_bytes("…")
+        size = 0
+        for index, char in enumerate(text):
+            size += escaped_bytes(char)
+            if size > budget:
+                text = text[:index] + "…"
+                break
     return text + link
 
 
