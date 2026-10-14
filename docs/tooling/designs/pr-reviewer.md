@@ -134,11 +134,11 @@ sequenceDiagram
 | Trigger | `tooling`: `organization.pipelines` in `.octomaton.yaml` (the organization repository), read at its default branch | Pipeline `review` (`AI Review`) for every repository, on `review_request` from `arikkfir-reviewer`; params from the template context; a read-only installation token for every repository; the two Secrets it may mount; a one-hour timeout |
 | PipelineRun | `tooling`: `reviewer/pipelinerun.yaml`, read at its default branch for every repository | Task `review`: its sidecar and seven steps, the volume, the ServiceAccount, the sandbox label, DNS and resources |
 | Scripts and prompt | `tooling`: `reviewer/` | `state.py` writes `pr.json`; `findings.py` checks `findings.json`; `report.py` posts the review through `github.py`; `github_proxy.py` serves GitHub in the sidecar; `prompt.md` and `opencode.json`. Standard-library Python, covered by `tests/test_reviewer.py` in `tooling`'s CI. Every step runs them from `tooling`'s default branch, and `report` and the sidecar from fresh clones of their own, never the volume's |
-| Octomaton | `octomaton` | The `review_request` trigger, organization pipelines, `secrets`, `githubToken.repositories: all` and the refusal of remote Tekton references; the reviewer image, built from `images/reviewer/` |
+| Octomaton | `octomaton` | The `review_request` trigger, organization pipelines, `secrets`, `githubToken.repositories: all` and the refusal of remote Tekton references; the reviewer image, built from `images/reviewer/` ([Octomaton's part](../../octomaton/designs/pr-reviewer.md)) |
 | Tenant objects | `delivery`: the `ci-tenants` base | ServiceAccount `reviewer`, NetworkPolicy `sandbox`, ExternalSecrets `reviewer-deepseek-api-key` and `reviewer-github-pat` in every `ci-<repository>` namespace |
 | Identity and secrets | `infra` | Secret Manager `reviewer-deepseek-api-key` and `reviewer-github-pat`; team `reviewers` (`arikkfir-reviewer`, `push` on every repository) |
 
-Octomaton knows nothing of the reviewer: it runs an organization pipeline on a review request, with the Secrets and the token scope the pipeline declares, as its [schema](../../hub/reference.md#repository-configuration-octomatonyaml) allows ([Octomaton](../../octomaton/designs/phase-2-octomaton.md)).
+Octomaton knows nothing of the reviewer: it runs an organization pipeline on a review request, with the Secrets and the token scope the pipeline declares, as its [schema](../../hub/reference.md#repository-configuration-octomatonyaml) allows. What Octomaton does for the reviewer, and why: [the reviewer in Octomaton](../../octomaton/designs/pr-reviewer.md).
 
 ### The `review` task
 
