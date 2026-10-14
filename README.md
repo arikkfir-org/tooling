@@ -12,7 +12,7 @@ A user-level configuration installed into `~/.claude` of every Claude Code on th
 | --- | --- |
 | [`claude/CLAUDE.md`](claude/CLAUDE.md) | User-level instructions: tone, terseness, answer-first responses |
 | [`claude/settings.json`](claude/settings.json) | Registers the hooks; runs the repositories' checks, local git, read-only GitHub tools and the `gke` MCP server's read tools without a prompt, denies the `gke` MCP server's write tools, and asks before a remote branch deletion or a switch that discards changes or resets a branch |
-| [`claude/mcp.json`](claude/mcp.json) | MCP servers: `gke`, GKE's remote MCP server (`https://container.googleapis.com/mcp`), which reads the hub cluster as the environment's Google Cloud credential, `claude-code@` ([design](https://github.com/arikkfir-org/docs/blob/main/hub/designs/claude-code-cluster-access.md)) |
+| [`claude/mcp.json`](claude/mcp.json) | MCP servers: `gke`, GKE's remote MCP server (`https://container.googleapis.com/mcp`), which reads the hub cluster as the environment's Google Cloud credential, `claude-code@` ([design](https://docs.dev.kfirs.com/hub/designs/claude-code-cluster-access.md)) |
 | [`claude/hooks/guard.py`](claude/hooks/guard.py) | `PreToolUse` (Bash): denies force-pushes/deletions of `main`/`master` and recursive deletion of `/` or `~`; asks before deleting any other remote branch and before a `git switch` that discards changes or resets a branch, in any spelling |
 | [`claude/hooks/commit_message.py`](claude/hooks/commit_message.py) | `PreToolUse` (Bash): in `arikkfir-org` repositories, denies a `git commit` whose message breaks the commit rules (`CONTRIBUTING.md` in `docs`), and says what to fix |
 | [`claude/hooks/format.py`](claude/hooks/format.py) | `PostToolUse` (Edit/Write): runs `gofmt` / `terraform fmt` on the written file and tells Claude when it changed |
@@ -70,7 +70,7 @@ The bundle is public. What guards it:
 Requesting a review from `arikkfir-reviewer` on a pull request runs an AI review: opencode with DeepSeek reviews the
 pull request in its repository's checkout, cloning any other repository it needs, and `arikkfir-reviewer` posts one
 review, with a thread per finding. Details are in the
-[design](https://github.com/arikkfir-org/docs/blob/main/hub/designs/pr-reviewer.md).
+[design](docs/tooling/designs/pr-reviewer.md).
 
 | File | Purpose |
 | --- | --- |
@@ -101,7 +101,7 @@ the model's steps are done and takes nothing from the volume but `findings.json`
 
 `docs.dev.kfirs.com` is one URL space composed from every repository: the `docs` repository's whole tree and every other
 repository's `docs/` directory, each published to its own layer of `gs://arikkfir-docs/.layers/<repository>/`. Details
-are in the [design](https://github.com/arikkfir-org/docs/blob/main/hub/designs/docs-site-composition.md).
+are in the [design](https://docs.dev.kfirs.com/hub/designs/docs-site-composition.md).
 
 | File | Role |
 | --- | --- |

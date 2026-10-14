@@ -26,7 +26,7 @@ pipelines:
 # arikkfir-org runs these pipelines, read from this file at main, and none can replace them.
 organization:
   pipelines:
-    # The pull request reviewer (arikkfir-org/docs, hub/designs/pr-reviewer.md): requesting a review from
+    # The pull request reviewer (https://docs.dev.kfirs.com/tooling/designs/pr-reviewer.md): requesting a review from
     # arikkfir-reviewer runs reviewer/pipelinerun.yaml, read at this repository's main.
     - name: review
       displayName: AI Review
