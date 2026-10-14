@@ -47,7 +47,7 @@ Reads go through Cloud Storage's XML API, `https://storage.googleapis.com/<bucke
 | Decision | Why | Rejected |
 | --- | --- | --- |
 | Read the docs from the bucket as `claude-code@` | The proxy already adds its credential, so a session needs no secret and no network change, and the hub's sign-in stays as it is | A Keycloak service account whose tokens oauth2-proxy accepts: every protected host would start accepting bearer tokens, the environment would hold a new secret, and WebFetch still couldn't send one |
-| An explicit `roles/storage.objectViewer` on the bucket, though `claude-code@` already reads it | It reads it otherwise only through Cloud Storage's convenience binding for project Viewers (below), which nothing in `infra` shows and which a lockdown of the buckets would remove. The grant says what is meant, and keeps the docs readable if that binding goes | Relying on the convenience binding |
+| An explicit `roles/storage.objectViewer` on the bucket, though `claude-code@` already reads it | It reads it otherwise only through Cloud Storage's convenience binding for project Viewers (below), which Cloud Storage adds on its own, not `infra`'s Terraform, and which a lockdown of the buckets would remove. The grant says what is meant, and keeps the docs readable if that binding goes | Relying on the convenience binding |
 | On the whole bucket | Listing can't be limited to a prefix, and the bucket holds only the layers | A role conditioned on `.layers/`: it can't cover listing |
 | Project Viewer, not narrower roles | The owner's choice: a session diagnosing the hub reads whatever a person looking around the project would | Roles per resource type |
 
