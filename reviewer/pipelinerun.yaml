@@ -142,7 +142,7 @@ spec:
             - name: check-summary
               type: string
           # The token is mounted only where a step or sidecar names it (Tekton's isolated workspaces, a beta feature;
-          # without it the run is refused): in clone and state, which run before the model, and in the github sidecar.
+          # without it the run is refused): in clone, which runs before the model, and in the github sidecar.
           # The model reaches GitHub through the sidecar on 127.0.0.1:8080 (reviewer/github_proxy.py), never with the
           # token.
           sidecars:
@@ -225,6 +225,17 @@ spec:
                 #!/bin/sh
                 set -eu
                 rm -rf .review "${NAME}"
+                # The prompt and scripts come from tooling's default branch, never from a pull request's head. They
+                # come first, so state.py can write pr.json from GitHub's APIs while the pull request clones: into this
+                # container's /tmp, moved into the checkout once it is known to hold none of the reviewer's files.
+                tooling="$(mktemp -d)"
+                git clone --quiet --depth 1 https://github.com/arikkfir-org/tooling.git "${tooling}"
+                mkdir .review
+                git -C "${tooling}" archive HEAD:reviewer | tar -x -C .review
+                python3 .review/state.py --repository "${REPOSITORY}" --number "${NUMBER}" --revision "${REVISION}" \
+                  --base-ref "${BASE_REF}" --reviewer "${REVIEWER}" \
+                  --token-file "$(workspaces.github-token.path)/token" --output /tmp/pr.json > /tmp/state.log 2>&1 &
+                state=$!
                 # The pull request's repository may be internal or private, so cloning it and fetching the pull
                 # request always take the read-only token: one path for every review, and no visibility check. git
                 # gets it as an HTTP header on its command line only, never in a .git/config, a URL or a credential
@@ -252,23 +263,12 @@ spec:
                 done
                 git diff "origin/${BASE_REF}...${REVISION}" > pr.diff
                 git log --stat "origin/${BASE_REF}..${REVISION}" > pr.log
-                cd ..
-                # The prompt and scripts come from tooling's default branch, never from a pull request's head.
-                tooling="$(mktemp -d)"
-                git clone --quiet --depth 1 https://github.com/arikkfir-org/tooling.git "${tooling}"
-                mkdir .review
-                git -C "${tooling}" archive HEAD:reviewer | tar -x -C .review
-            - name: state
-              image: me-west1-docker.pkg.dev/arikkfir/images/reviewer:main
-              imagePullPolicy: Always
-              workspaces:
-                - name: github-token
-              script: |
-                #!/bin/sh
-                set -eu
-                exec python3 .review/state.py --repository "${REPOSITORY}" --number "${NUMBER}" \
-                  --revision "${REVISION}" --base-ref "${BASE_REF}" --reviewer "${REVIEWER}" \
-                  --token-file "$(workspaces.github-token.path)/token" --output "${NAME}/pr.json"
+                if ! wait "${state}"; then
+                  cat /tmp/state.log >&2
+                  exit 1
+                fi
+                cat /tmp/state.log
+                mv /tmp/pr.json pr.json
             - name: review
               image: me-west1-docker.pkg.dev/arikkfir/images/reviewer:main
               imagePullPolicy: Always
@@ -282,7 +282,7 @@ spec:
                 #!/bin/sh
                 set -eu
                 cd "${NAME}"
-                # Only clone, state and the github sidecar mount the token: never run the model where it can read it.
+                # Only clone and the github sidecar mount the token: never run the model where it can read it.
                 if [ -e /workspace/github-token ] || [ -e /var/run/github-token ]; then
                   echo "The GitHub token is mounted in this step; refusing to run the model." >&2
                   exit 1
@@ -333,7 +333,7 @@ spec:
                 #!/bin/sh
                 set -eu
                 cd "${NAME}"
-                # Only clone, state and the github sidecar mount the token: never run the model where it can read it.
+                # Only clone and the github sidecar mount the token: never run the model where it can read it.
                 if [ -e /workspace/github-token ] || [ -e /var/run/github-token ]; then
                   echo "The GitHub token is mounted in this step; refusing to run the model." >&2
                   exit 1

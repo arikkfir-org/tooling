@@ -1148,12 +1148,12 @@ class PipelineRunTest(unittest.TestCase):
         # The model's steps run in the same pod as report and must never see its token: it is in report's container
         # alone, as the DeepSeek key is in review's and fix's.
         blocks = step_blocks()
-        self.assertEqual(list(blocks), ["github", "clone", "state", "review", "check", "fix", "recheck", "report"])
+        self.assertEqual(list(blocks), ["github", "clone", "review", "check", "fix", "recheck", "report"])
         self.assertEqual([name for name, block in blocks.items() if "reviewer-github-pat" in block], ["report"])
         self.assertEqual([name for name, block in blocks.items() if "reviewer-deepseek-api-key" in block],
                          ["review", "fix"])
         self.assertEqual([name for name, block in blocks.items() if "- name: github-token" in block],
-                         ["github", "clone", "state"])
+                         ["github", "clone"])
 
     def test_report_takes_only_findings_from_the_volume(self):
         # The model could have rewritten anything on the volume: report runs its own clone of tooling in its container,
@@ -1264,6 +1264,19 @@ class LocalGitHubTest(unittest.TestCase):
     of arikkfir-org/clash adds a pr.json, and that of arikkfir-org/link a pr.diff linking into .review/."""
 
     HUB = ["docs", "infra", "delivery", "octomaton", "tooling"]
+    # tooling's state.py, faked: writes a pr.json naming the pull request, or fails when STATE_FAILS is set.
+    STATE = textwrap.dedent("""\
+        import argparse, json, os, sys
+        parser = argparse.ArgumentParser()
+        for flag in ("--repository", "--number", "--revision", "--base-ref", "--reviewer", "--token-file", "--output"):
+            parser.add_argument(flag, required=True)
+        args = parser.parse_args()
+        if os.environ.get("STATE_FAILS"):
+            sys.exit("GitHub refused the request.")
+        with open(args.output, "w", encoding="utf-8") as f:
+            json.dump({"repository": args.repository, "number": int(args.number)}, f)
+        print(f"Wrote {args.output}.")
+        """)
     TOKEN = "test-installation-token-" + "0" * 40  # long enough for base64 to wrap the credentials
 
     @classmethod
@@ -1298,6 +1311,8 @@ class LocalGitHubTest(unittest.TestCase):
         os.makedirs(os.path.join(work, "reviewer"))
         with open(os.path.join(work, "reviewer", "prompt.md"), "w", encoding="utf-8") as f:
             f.write("Review the pull request.\n")
+        with open(os.path.join(work, "reviewer", "state.py"), "w", encoding="utf-8") as f:
+            f.write(cls.STATE)
         cls.git(work, "init", "--quiet", "--initial-branch=main")
         cls.git(work, "add", "--all")
         cls.git(work, "commit", "--quiet", "--message=Start")
@@ -1339,29 +1354,39 @@ class LocalGitHubTest(unittest.TestCase):
 class CloneStepTest(LocalGitHubTest):
     """Runs the review task's clone step against the local github.com."""
 
-    def clone(self, repository, succeeds=True):
-        """Runs the clone step as Tekton would, in the workspace, with github.com pointing at the local server. Returns
-        its log."""
-        script = step_script("clone").replace("$(workspaces.github-token.path)", self.token_dir)
+    def clone(self, repository, succeeds=True, **extra):
+        """Runs the clone step as Tekton would, in the workspace, with github.com pointing at the local server and /tmp
+        under the test's directory. Returns its log."""
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp)
+        script = step_script("clone").replace("/tmp/", tmp + "/")
+        script = script.replace("$(workspaces.github-token.path)", self.token_dir)
         env = {**self.env, "REPOSITORY": repository, "NAME": repository.split("/")[1], "NUMBER": "7",
                "REVISION": self.heads[repository], "BASE_REF": "main", "REVIEWER": REVIEWER, "GIT_CONFIG_COUNT": "1",
                "GIT_CONFIG_KEY_0": f"url.http://127.0.0.1:{self.server.server_port}/.insteadOf",
-               "GIT_CONFIG_VALUE_0": "https://github.com/"}
+               "GIT_CONFIG_VALUE_0": "https://github.com/", **extra}
         result = subprocess.run(["sh", "-c", script], cwd=self.workspace, env=env, capture_output=True, text=True)
         self.assertEqual(result.returncode == 0, succeeds, result.stderr)
         return result.stdout + result.stderr
 
     def assert_reviewed(self, name):
-        """The pull request's repository is checked out at its head, with pr.diff and pr.log at its root, and only
-        tooling's reviewer/ is beside it, in .review/."""
+        """The pull request's repository is checked out at its head, with pr.json (from state.py), pr.diff and pr.log
+        at its root, and only tooling's reviewer/ is beside it, in .review/."""
         repository = os.path.join(self.workspace, name)
         self.assertEqual(self.git(repository, "rev-parse", "HEAD"), self.heads[f"arikkfir-org/{name}"])
         with open(os.path.join(repository, "pr.diff"), encoding="utf-8") as f:
             self.assertIn("+the change", f.read())
         with open(os.path.join(repository, "pr.log"), encoding="utf-8") as f:
             self.assertIn("change.txt", f.read())
+        with open(os.path.join(repository, "pr.json"), encoding="utf-8") as f:
+            self.assertEqual(json.load(f), {"repository": f"arikkfir-org/{name}", "number": 7})
         self.assertEqual(sorted(os.listdir(self.workspace)), sorted([".review", name]))
-        self.assertEqual(os.listdir(os.path.join(self.workspace, ".review")), ["prompt.md"])
+        self.assertEqual(sorted(os.listdir(os.path.join(self.workspace, ".review"))), ["prompt.md", "state.py"])
+
+    def test_a_failing_state_fails_the_step(self):
+        log = self.clone("arikkfir-org/infra", succeeds=False, STATE_FAILS="1")
+        self.assertIn("GitHub refused the request.", log)
+        self.assertFalse(os.path.exists(os.path.join(self.workspace, "infra", "pr.json")))
 
     def test_an_internal_repository(self):
         log = self.clone("arikkfir-org/fin")
@@ -1379,9 +1404,10 @@ class CloneStepTest(LocalGitHubTest):
         self.assert_no_token(log)
 
     def test_tooling_itself(self):
-        # The reviewer's files come from tooling's default branch, cloned apart from the pull request's checkout.
+        # The reviewer's files come from tooling's default branch, cloned anonymously and first, apart from the pull
+        # request's checkout, which takes the token.
         log = self.clone("arikkfir-org/tooling")
-        self.assertEqual(self.authorizations(), {"arikkfir-org/tooling": [self.server.authorization, None]})
+        self.assertEqual(self.authorizations(), {"arikkfir-org/tooling": [None, self.server.authorization]})
         self.assert_reviewed("tooling")
         self.assert_no_token(log)
 
@@ -1390,8 +1416,9 @@ class CloneStepTest(LocalGitHubTest):
             with self.subTest(name=name):
                 log = self.clone(f"arikkfir-org/{name}", succeeds=False)
                 self.assertIn(f"arikkfir-org/{name} has a {file} at its root", log)
-                # The link dangles until .review/ exists, and the step stops before writing through it.
-                self.assertFalse(os.path.exists(os.path.join(self.workspace, ".review")))
+                # The step stops before writing pr.diff or anything else through the link into .review/.
+                with open(os.path.join(self.workspace, ".review", "prompt.md"), encoding="utf-8") as f:
+                    self.assertEqual(f.read(), "Review the pull request.\n")
 
 class FakeAPI(http.server.ThreadingHTTPServer):
     """api.github.com, recording each request (method, path with query, headers, body) and answering per path."""
@@ -1719,7 +1746,7 @@ class ReviewPipelineRunTest(unittest.TestCase):
         images = re.findall(r"image: (\S+)", self.text)
         steps = re.findall(r"^ +- name: \S+\n( +)image: \S+\n\1imagePullPolicy: Always\n", self.text, re.MULTILINE)
         self.assertEqual(len(images), len(steps))
-        self.assertEqual(len(images), 8)  # review's 7 steps and its sidecar
+        self.assertEqual(len(images), 7)  # review's 6 steps and its sidecar
         self.assertEqual(set(images), {"me-west1-docker.pkg.dev/arikkfir/images/reviewer:main"})
 
     def review_steps(self):
@@ -1728,15 +1755,15 @@ class ReviewPipelineRunTest(unittest.TestCase):
         steps = review[review.index("\n          steps:\n"):]
         return dict(re.findall(r"^ {12}- name: (\S+)\n((?: {14}.*\n|\n)*)", steps, re.MULTILINE))
 
-    def test_only_clone_state_and_the_sidecar_mount_the_token(self):
+    def test_only_clone_and_the_sidecar_mount_the_token(self):
         review = self.text[self.text.index("      - name: review\n"):self.text.index("      - name: report\n")]
         self.assertRegex(review, r"\n {10}sidecars:\n {12}- name: github\n(?: {14}.*\n)*? {14}workspaces:\n"
                                  r" {16}- name: github-token\n")
         steps = self.review_steps()
-        self.assertEqual(list(steps), ["clone", "state", "review", "check", "fix", "recheck"])
+        self.assertEqual(list(steps), ["clone", "review", "check", "fix", "recheck"])
         mounting = [name for name, step in steps.items()
                     if re.search(r"^ {14}workspaces:\n {16}- name: github-token\n", step, re.MULTILINE)]
-        self.assertEqual(mounting, ["clone", "state"])
+        self.assertEqual(mounting, ["clone"])
         for step in ("review", "fix"):
             with self.subTest(step=step):
                 script = step_script(step)
@@ -1759,7 +1786,7 @@ class ReviewPipelineRunTest(unittest.TestCase):
         template = self.text[self.text.index("          stepTemplate:\n"):self.text.index("          steps:\n")]
         self.assertNotIn("reviewer-deepseek-api-key", template)
 
-    TOKEN_PATHS = ("/workspace/github-token", "/var/run/github-token")  # the sidecar's mount, and clone's and state's
+    TOKEN_PATHS = ("/workspace/github-token", "/var/run/github-token")  # the sidecar's mount, and clone's
 
     def run_model_step(self, step, mounted, name="infra", calls=None):
         """Runs a model step as Tekton would: in the volume's root, with the checkout and .review/ in it, and opencode,
@@ -1856,7 +1883,8 @@ class ReviewPipelineRunTest(unittest.TestCase):
             with self.subTest(step=step):
                 self.assertTrue(step_script(step).startswith('#!/bin/sh\nset -eu\ncd "${NAME}"\n'))
         self.assertIn('--findings "$(workspaces.shared.path)/$(params.name)/findings.json"', step_script("report"))
-        self.assertIn('--output "${NAME}/pr.json"', step_script("state"))
+        self.assertIn("--output /tmp/pr.json", step_script("clone"))
+        self.assertIn("\nmv /tmp/pr.json pr.json\n", step_script("clone"))
 
     def test_nothing_in_the_checkout_configures_opencode(self):
         for variable in ("OPENCODE_DISABLE_PROJECT_CONFIG", "OPENCODE_DISABLE_EXTERNAL_SKILLS",
