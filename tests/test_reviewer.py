@@ -810,12 +810,50 @@ class ReportTest(unittest.TestCase):
             self.assertEqual(f.read(), f"What the change does.\n\n[The review on GitHub]({REVIEW_URL})")
 
     def test_check_summary_fits_a_result(self):
-        summary = report.check_summary("é" * 1500, REVIEW_URL)
-        self.assertLessEqual(len(summary.encode()), report.MAX_SUMMARY_BYTES)
-        self.assertTrue(summary.endswith(f"…\n\n[The review on GitHub]({REVIEW_URL})"))
+        # Whatever the summary holds, the termination message report's step leaves stays within MAX_MESSAGE_BYTES as Go
+        # encodes it, with the longest title a verdict gives and Tekton's StartedAt entry, and keeps the review's link.
+        title = report.verdict({f"CODE-{i}": finding(p) for i, p in
+                                enumerate(["blocking"] * 999 + ["non-blocking"] * 999 + ["nit"] * 999)})[1]
+        self.assertLessEqual(len(title.encode()), report.MAX_TITLE_BYTES)
+        for text in ("é" * 1500, "<" * 1500, "a\n" * 750, '"' * 1500, "a\u2028" * 750, "\b" * 1500, "🔴" * 1500,
+                     "A sentence.\n" * 125):
+            with self.subTest(text=text[:3]):
+                summary = report.check_summary(text, REVIEW_URL)
+                self.assertTrue(summary.endswith(f"…\n\n[The review on GitHub]({REVIEW_URL})"))
+                message = [{"key": "check-summary", "value": summary, "type": 1},
+                           {"key": "check-title", "value": title, "type": 1},
+                           {"key": "StartedAt", "value": "2026-10-14T15:18:29.605Z", "type": 3}]
+                self.assertLessEqual(len(go_json(message)), report.MAX_MESSAGE_BYTES)
+
+    def test_a_short_summary_is_kept_whole(self):
+        self.assertEqual(report.check_summary("  What the change does.\n", REVIEW_URL),
+                         f"What the change does.\n\n[The review on GitHub]({REVIEW_URL})")
+
+    def test_escaped_bytes_counts_as_go_encodes(self):
+        for text in ("plain", "é🔴", "<a & b>", "line\nbreak\ttab", 'quote " and \\', "\u2028\u2029", "\b\f\x01",
+                     "\\b and \\f"):
+            with self.subTest(text=text):
+                self.assertEqual(report.escaped_bytes(text), len(go_json(text)) - 2)
+
+
+def go_json(value):
+    """value as Go's encoding/json marshals it, which Tekton's entrypoint writes the termination message with: compact,
+    UTF-8 kept, and <, >, &, U+2028, U+2029 and every control character but newline, carriage return and tab as \\u
+    escapes."""
+    text = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+    text = re.sub(r"\\.", lambda m: {"\\b": "\\u0008", "\\f": "\\u000c"}.get(m.group(), m.group()), text)
+    return re.sub("[<>&\u2028\u2029]", lambda m: f"\\u{ord(m.group()):04x}", text).encode()
 
 
 class PipelineRunTest(unittest.TestCase):
+    def test_reports_results_fit_its_share_of_termination_messages(self):
+        # Kubernetes splits 12 KiB of termination messages equally among a pod's containers: Tekton's 3 init
+        # containers (prepare, place-scripts, working-dir-initializer), every step and every sidecar. report's message
+        # must fit its share, or Tekton records no results and the run fails after the review is posted.
+        blocks = step_blocks()
+        self.assertIn("report", blocks)
+        self.assertGreaterEqual(12 * 1024 // (3 + len(blocks)), report.MAX_MESSAGE_BYTES)
+
     def test_mounts_only_the_reviewers_secrets(self):
         with open(os.path.join(REVIEWER_DIR, "pipelinerun.yaml"), encoding="utf-8") as f:
             text = f.read()

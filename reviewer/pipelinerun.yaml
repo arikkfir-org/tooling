@@ -348,7 +348,9 @@ spec:
             # own fresh clone of tooling's default branch in its container's filesystem, with HOME and the XDG
             # directories there too (git and python read configuration under HOME), and python without user
             # site-packages or PYTHON* variables (-s -E), so no .gitconfig, sitecustomize.py or the like written on
-            # the volume reaches it.
+            # the volume reaches it. Its results travel in its termination message, whose share of the pod's 12 KiB
+            # shrinks with every container added here: report.py's MAX_MESSAGE_BYTES fits 12 containers, and a test
+            # holds the pod to that many.
             - name: report
               image: me-west1-docker.pkg.dev/arikkfir/images/reviewer:main
               imagePullPolicy: Always
