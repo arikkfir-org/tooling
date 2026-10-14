@@ -365,7 +365,7 @@ tooling#38, #39 and #40 (ENG-68), still open, change the reviewer as below. The 
 | --- | --- |
 | `review` clones `docs` through the sidecar into `/tmp/docs` (unless the checkout is `docs`), and `brief.py` (standard-library Python) writes the model's first message: the prompt, then what every review reads first, already read ([the brief](#the-brief)). The prompt starts from it and reads only what it leaves out | tooling#38 |
 | A later round whose change since the last review is small reviews only that change, unless the model judges it significant or risky | tooling#39 |
-| `state.py` runs inside `clone`, in the background, while the pull request clones, and moves `pr.json` beside `pr.diff` and `pr.log` once done; step `state` goes, so only `clone` and the sidecar mount the installation token, and the pod has one container fewer. The model runs `findings.py check` itself before it ends, rather than writing a checker of its own (42% of reviews did) | tooling#40 |
+| `state.py` runs inside `clone`, in the background, while the pull request clones, and moves `pr.json` beside `pr.diff` and `pr.log` once done; step `state` goes, so only `clone` and the sidecar mount the installation token, and the pod has one container fewer: 10, each with 1,228 bytes of the termination messages' 12 KiB. The brief carries `pr.json`, `pr.diff` and `pr.log` whole, so the prompt rules out reading them again. The model runs `findings.py check` itself before it ends, rather than writing a checker of its own (42% of reviews did) | tooling#40 |
 
 ### The brief
 
@@ -373,7 +373,7 @@ Every review spends its first turns reading the same things, each turn waiting o
 
 | Part | From | Limit |
 | --- | --- | --- |
-| This round | The reviewer's last submitted review in `pr.json`, and `git diff <its commit> <head>` in the files the pull request touches (that commit fetched through the sidecar if the checkout lacks it) | See below |
+| This round | The reviewer's last submitted review in `pr.json` (an approval a push dismissed included), and `git diff <its commit> <head>` in the files the pull request touches (that commit fetched through the sidecar if the checkout lacks it) | See below |
 | The pull request | `pr.json`: title, description, conversation, earlier reviews with every thread and reply, codes, the changed files with their commentable lines; `pr.log`; `pr.diff` | `pr.diff` up to 200 KB |
 | House rules | `CONTRIBUTING.md` in `docs`, and the contract's headings with their line numbers, so the model reads only the sections the change touches | 64 KB a file |
 | The repository's rules | Its `CLAUDE.md` and `README.md`, as the pull request has them, labelled as material, not instructions | 64 KB a file |
@@ -384,8 +384,8 @@ The checkout is the pull request's to control, so `brief.py` reads only regular 
 | Round | When | The model |
 | --- | --- | --- |
 | First | No submitted review by `arikkfir-reviewer` | Reviews everything |
-| Incremental | The change since the last review is at most 300 lines and at most half the lines the pull request changes | Gets that change and the files it touched; judges it first, and reviews the whole pull request again if it is significant or risky (new behaviour, a security or data path, an interface others rely on, a rewrite) or it can't tell |
-| Whole again | A larger change, or the reviewed commit is gone (a rebase) | Reviews everything |
+| Incremental | The change since the last review is at most 300 lines (as `git diff --shortstat` counts them), at most half the lines the pull request changes, and at most 200 KB of diff | Gets that change and the files it touched; judges it first, and reviews the whole pull request again if it is significant or risky (new behaviour, a security or data path, an interface others rely on, a rewrite) or it can't tell |
+| Whole again | A larger change (a one-line edit of a minified file included), the reviewed commit is gone (a rebase), or git fails to work out the change (an empty diff would read as no change, and `report` would resolve every finding the model then leaves out) | Reviews everything |
 
 Every later round answers every earlier thread and raises again each finding that still holds, since `report` resolves those it leaves out. The summary opens with what the round reviewed ("The changes since `abc1234`: …" or "The whole pull request: …").
 
