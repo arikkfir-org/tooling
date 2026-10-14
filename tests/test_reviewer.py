@@ -1036,6 +1036,31 @@ class RoundTest(unittest.TestCase):
         self.assertIn(f"You last reviewed this pull request at `fffffff` (CHANGES_REQUESTED, 2026-10-14T10:00:00Z), "
                       "a commit no longer in its history", text)
 
+    def test_a_change_git_cant_work_out_is_reviewed_whole(self):
+        # An empty diff from a failed git would read as an incremental round with no change, and every earlier
+        # finding the model then leaves out would be resolved.
+        head = self.commit({"a.txt": "a\n" * 32}, "More")
+        cases = [("the head isn't in the checkout", "e" * 40, None),
+                 ("the base branch is gone", head, ("update-ref", "-d", "refs/remotes/origin/main"))]
+        for name, revision, change in cases:
+            with self.subTest(name):
+                if change:
+                    self.git(*change)
+                text = self.compose(self.state(revision, [self.review(self.reviewed)], {"a.txt": 22, "b.txt": 2}))
+                self.assertIn(f"You last reviewed this pull request at `{self.reviewed[:7]}` (CHANGES_REQUESTED, "
+                              "2026-10-14T10:00:00Z), but git couldn't work out what changed since. Review the whole "
+                              "pull request again", text)
+                self.assertNotIn("(No change to the files it touches.)", text)
+
+    def test_a_change_that_isnt_utf8_is_still_briefed(self):
+        with open(os.path.join(self.repo, "a.txt"), "ab") as f:
+            f.write(b"caf\xe9\n")
+        self.git("commit", "--quiet", "--all", "--message=Latin-1")
+        head = self.git("rev-parse", "HEAD")
+        text = self.compose(self.state(head, [self.review(self.reviewed)], {"a.txt": 22, "b.txt": 2}))
+        self.assertIn("Since then it has changed by 1 of the 24 lines it changes, in these files: `a.txt`.", text)
+        self.assertIn("+caf�\n", text)
+
     def test_a_missing_commit_is_fetched_from_the_remote(self):
         # The checkout holds only the new head's history; the reviewed commit is on a branch of the remote.
         self.git("branch", "reviewed", self.reviewed)

@@ -169,7 +169,7 @@ def attached(title, root, path, limit, info=""):
 
 
 def git(checkout, *args):
-    return subprocess.run(["git", "-C", checkout, *args], capture_output=True, text=True)
+    return subprocess.run(["git", "-C", checkout, *args], capture_output=True, encoding="utf-8", errors="replace")
 
 
 def changed_lines(diff):
@@ -202,11 +202,12 @@ def this_round(state, checkout, remote=None):
     for file in state.get("files") or []:
         paths.update(name for name in (file.get("filename"), file.get("previous_filename")) if name)
     before = git(checkout, "diff", "--name-only", f"origin/{state['baseRef']}...{since}")
-    if before.returncode == 0:
-        paths.update(line for line in before.stdout.splitlines() if line)
-    diff = git(checkout, "diff", since, revision, "--", *sorted(paths)).stdout if paths else ""
-    files = [line for line in git(checkout, "diff", "--name-only", since, revision, "--", *sorted(paths))
-             .stdout.splitlines() if line] if paths else []
+    paths.update(line for line in before.stdout.splitlines() if line)
+    diff = git(checkout, "diff", since, revision, "--", *sorted(paths))
+    names = git(checkout, "diff", "--name-only", since, revision, "--", *sorted(paths))
+    if any(run.returncode for run in (before, diff, names)):
+        return {**found, "mode": "full", "why": "failed"}
+    diff, files = diff.stdout, [line for line in names.stdout.splitlines() if line]
     lines = changed_lines(diff)
     total = sum((file.get("additions") or 0) + (file.get("deletions") or 0) for file in state.get("files") or [])
     found.update(diff=diff, files=files, lines=lines, total=total)
@@ -224,6 +225,8 @@ def round_section(found, revision):
     if found["mode"] == "full":
         if found["why"] == "gone":
             why = f"{when}, a commit no longer in its history: it was rebased or force-pushed since."
+        elif found["why"] == "failed":
+            why = f"{when}, but git couldn't work out what changed since."
         else:
             why = (f"{when}. It has changed by {found['lines']} lines since, in the files it touches, which is more "
                    f"than {INCREMENTAL_MAX_LINES} lines or half of the {found['total']} lines it changes.")
