@@ -22,15 +22,17 @@ PRIORITIES = findings.PRIORITIES
 CIRCLES = {"blocking": "🔴", "non-blocking": "🟡", "nit": "🔵"}
 WHOLE = "About the pull request as a whole."
 # The check run's title and summary are the report step's Tekton results, which travel in its container's termination
-# message as Go-encoded JSON: [{"key":"check-summary","value":…,"type":1},{"key":"check-title","value":…,"type":1}].
+# message as Go-encoded JSON, beside Tekton's own StartedAt entry: [{"key":"check-summary","value":…,"type":1},
+# {"key":"check-title","value":…,"type":1},{"key":"StartedAt","value":"2026-10-14T15:18:29.605Z","type":3}].
 # Kubernetes splits 12 KiB of termination messages equally among a pod's containers, the review pod's 11 among them
 # (Tekton's 3 init containers, 7 steps and the github sidecar), and cuts each message at its share: 1,117 bytes. A
 # longer message is no longer JSON, Tekton records no results, and the run fails though the review was posted.
-# MAX_RESULTS_BYTES fits 12 containers, and a test holds the pod to that many.
-MAX_RESULTS_BYTES = 1024
-RESULTS_FRAME = '[{"key":"check-summary","value":"","type":1},{"key":"check-title","value":"","type":1}]'
+# MAX_MESSAGE_BYTES fits 12 containers, and a test holds the pod to that many.
+MAX_MESSAGE_BYTES = 1024
+MESSAGE_FRAME = ('[{"key":"check-summary","value":"","type":1},{"key":"check-title","value":"","type":1},'
+                 '{"key":"StartedAt","value":"2006-01-02T15:04:05.000Z","type":3}]')
 MAX_TITLE_BYTES = 80
-MAX_SUMMARY_BYTES = MAX_RESULTS_BYTES - len(RESULTS_FRAME) - MAX_TITLE_BYTES
+MAX_SUMMARY_BYTES = MAX_MESSAGE_BYTES - len(MESSAGE_FRAME) - MAX_TITLE_BYTES
 
 CONTEXT_QUERY = """
 query Context($owner: String!, $name: String!, $number: Int!) {

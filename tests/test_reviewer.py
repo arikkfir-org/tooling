@@ -810,8 +810,8 @@ class ReportTest(unittest.TestCase):
             self.assertEqual(f.read(), f"What the change does.\n\n[The review on GitHub]({REVIEW_URL})")
 
     def test_check_summary_fits_a_result(self):
-        # Whatever the summary holds, the results message report's step writes stays within MAX_RESULTS_BYTES as Go
-        # encodes it, with the longest title a verdict gives, and keeps the link to the review.
+        # Whatever the summary holds, the termination message report's step leaves stays within MAX_MESSAGE_BYTES as Go
+        # encodes it, with the longest title a verdict gives and Tekton's StartedAt entry, and keeps the review's link.
         title = report.verdict({f"CODE-{i}": finding(p) for i, p in
                                 enumerate(["blocking"] * 999 + ["non-blocking"] * 999 + ["nit"] * 999)})[1]
         self.assertLessEqual(len(title.encode()), report.MAX_TITLE_BYTES)
@@ -821,8 +821,9 @@ class ReportTest(unittest.TestCase):
                 summary = report.check_summary(text, REVIEW_URL)
                 self.assertTrue(summary.endswith(f"…\n\n[The review on GitHub]({REVIEW_URL})"))
                 message = [{"key": "check-summary", "value": summary, "type": 1},
-                           {"key": "check-title", "value": title, "type": 1}]
-                self.assertLessEqual(len(go_json(message)), report.MAX_RESULTS_BYTES)
+                           {"key": "check-title", "value": title, "type": 1},
+                           {"key": "StartedAt", "value": "2026-10-14T15:18:29.605Z", "type": 3}]
+                self.assertLessEqual(len(go_json(message)), report.MAX_MESSAGE_BYTES)
 
     def test_a_short_summary_is_kept_whole(self):
         self.assertEqual(report.check_summary("  What the change does.\n", REVIEW_URL),
@@ -847,11 +848,11 @@ def go_json(value):
 class PipelineRunTest(unittest.TestCase):
     def test_reports_results_fit_its_share_of_termination_messages(self):
         # Kubernetes splits 12 KiB of termination messages equally among a pod's containers: Tekton's 3 init
-        # containers (prepare, place-scripts, working-dir-initializer), every step and every sidecar. report's results
-        # must fit its share, or Tekton records none and the run fails after the review is posted.
+        # containers (prepare, place-scripts, working-dir-initializer), every step and every sidecar. report's message
+        # must fit its share, or Tekton records no results and the run fails after the review is posted.
         blocks = step_blocks()
         self.assertIn("report", blocks)
-        self.assertGreaterEqual(12 * 1024 // (3 + len(blocks)), report.MAX_RESULTS_BYTES)
+        self.assertGreaterEqual(12 * 1024 // (3 + len(blocks)), report.MAX_MESSAGE_BYTES)
 
     def test_mounts_only_the_reviewers_secrets(self):
         with open(os.path.join(REVIEWER_DIR, "pipelinerun.yaml"), encoding="utf-8") as f:
