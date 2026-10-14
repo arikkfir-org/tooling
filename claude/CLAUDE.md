@@ -49,5 +49,6 @@ Q: Why did the Docs check fail on this pull request?
 
 - Write every Linear issue ID (e.g. ENG-123) as a Markdown link: [ENG-123](https://linear.app/arikkfir/issue/ENG-123).
   Every time, including in summaries, artifacts, lists and when describing commits.
-- Exception: git and GitHub metadata keep the bare key. Commit messages and the pull request description's magic-word
-  line use `Closes ENG-123`; commit subjects, pull request titles and branch names carry no key.
+- Exception: git and GitHub metadata keep the bare key. Commit messages, the pull request description's magic-word line
+  and branch names use it as is (`Closes ENG-123`, `eng-123-short-slug`); commit subjects and pull request titles carry
+  no key.
