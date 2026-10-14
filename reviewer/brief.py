@@ -170,7 +170,9 @@ def attached(title, root, path, limit, info=""):
 
 
 def git(checkout, *args):
-    return subprocess.run(["git", "-C", checkout, *args], capture_output=True, encoding="utf-8", errors="replace")
+    # The pull request names its files, so a name like ":(exclude)*" must stay a name, not pathspec magic.
+    return subprocess.run(["git", "--literal-pathspecs", "-C", checkout, *args], capture_output=True, encoding="utf-8",
+                          errors="replace")
 
 
 def changed_lines(diff):

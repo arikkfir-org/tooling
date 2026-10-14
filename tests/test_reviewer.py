@@ -1028,6 +1028,13 @@ class RoundTest(unittest.TestCase):
         self.assertIn(f"You last reviewed this pull request at `{approved[:7]}` (DISMISSED, 2026-10-14T11:00:00Z). "
                       "Since then it has changed by 1 of the 24 lines it changes", text)
 
+    def test_a_file_named_like_pathspec_magic_is_just_a_name(self):
+        # Read as magic, ":(exclude)*" would exclude every other file, and the round would show no change.
+        head = self.commit({"a.txt": "a\n" * 32, ":(exclude)*": "x\n"}, "Two more lines and an odd name")
+        text = self.compose(self.state(head, [self.review(self.reviewed)], {"a.txt": 22, "b.txt": 2, ":(exclude)*": 1}))
+        self.assertIn("Since then it has changed by 3 of the 25 lines it changes, in these files: `:(exclude)*`, "
+                      "`a.txt`.", text)
+
     def test_a_large_change_is_reviewed_whole(self):
         head = self.commit({"a.txt": "a\n" * 45}, "Fifteen more lines")
         text = self.compose(self.state(head, [self.review(self.reviewed)], {"a.txt": 23, "b.txt": 2}))
