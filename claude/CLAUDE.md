@@ -48,4 +48,5 @@ Q: Why did the Docs check fail on this pull request?
 # Linear ticket links
 
 - Write every Linear issue ID (e.g. ENG-123) as a Markdown link: [ENG-123](https://linear.app/arikkfir/issue/ENG-123).
-  Every time, including in summaries, artifacts, lists and commit messages.
+  Every time, including in summaries, artifacts, lists and when describing commits. Commit messages themselves keep
+  the bare key (`Closes ENG-123`), never in the subject.
