@@ -5,7 +5,8 @@ reviewer, and the organization pipelines every repository runs.
 
 ## Claude Code web bundle
 
-A user-level configuration installed into `~/.claude` of every Claude Code on the web session:
+A user-level configuration installed into `~/.claude` of every Claude Code on the web session
+([design](docs/tooling/designs/phase-5-tooling.md)):
 
 | File | Purpose |
 | --- | --- |
