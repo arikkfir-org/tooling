@@ -683,7 +683,8 @@ class PullRequestTest(unittest.TestCase):
         message = self.remind()
         self.assertIn("You opened #14 in arikkfir-org/tooling", message)
         self.assertIn('reviewers: ["arikkfir-reviewer"]', message)
-        self.assertIn("ENG-", message)
+        self.assertIn("`Closes ENG-<n>`, or as `Part of ENG-<n>` only while more pull requests", message)
+        self.assertIn("`skip-linear`", message)
 
     def test_skips_the_review_step_when_already_requested(self):
         message = self.remind(reviewers=["Arikkfir-Reviewer"])

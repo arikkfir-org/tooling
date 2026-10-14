@@ -40,8 +40,11 @@ def main():
             "fixes for its findings and reply on its threads, request it again."
         )
     steps.append(
-        "Check the description against CONTRIBUTING.md in arikkfir-org/docs (\"Pull requests\"): its Linear issue "
-        "as `Closes ENG-<n>` or `Part of ENG-<n>`, and the link to the design doc for a meaningful change."
+        "Check the description against CONTRIBUTING.md in arikkfir-org/docs (\"Pull requests\", \"Linear\"): its "
+        "Linear issue as `Closes ENG-<n>`, or as `Part of ENG-<n>` only while more pull requests for that issue are "
+        "still to come, and the link to the design doc for a meaningful change. A pull request with no issue carries "
+        "the label `skip-linear`, which you add only when your person says so: check `Linear` fails without one or "
+        "the other."
     )
     subject = f"#{number.group(1)} in {owner}/{repo}" if number else f"a pull request in {owner}/{repo}"
     message = f"You opened {subject}. It isn't finished until it is with a reviewer:\n" + "\n".join(

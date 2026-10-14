@@ -28,6 +28,10 @@ request reviewer (`reviewer/`), and the organization pipelines every repository 
 - `docs-site/`: the docs site's organization pipelines (`docs`, `docs-publish`). Their runs take `docs-site/` from the
   default branch and treat the repository under test as data. `compose.py` is stdlib-only and covered by
   `tests/test_docs_site.py`; `links.lua` by `tests/test_links.sh`.
+- `linear/`: check Linear's organization pipeline (`linear`). Its run takes `linear/` from the default branch and never
+  fetches the repository under test: `check.py`, stdlib-only, reads the pull request from GitHub and its link from
+  Linear. Its PipelineRun references only Secret `linear-api-key`, plus the token workspace Octomaton binds. It runs on
+  every pull request automatically, Dependabot's included, so it must never run their code.
 - The reviewer's PipelineRun references only Secrets `reviewer-deepseek-api-key` and `reviewer-github-pat`, plus the
   token workspace Octomaton binds. Never add another. The token reads every repository: only the `clone` step (which
   also writes `pr.json`) and the `github` sidecar of `review` mount it (an isolated workspace), never a step that runs
@@ -39,8 +43,9 @@ request reviewer (`reviewer/`), and the organization pipelines every repository 
 ## Docs
 
 - This repository's designs are in `docs/tooling/designs/`: the reviewer's (`pr-reviewer.md`), the Claude Code
-  bundle's (`phase-5-tooling.md`) and its sessions' access to the cluster and the docs
-  (`claude-code-cluster-access.md`). A change keeps those it touches true, in the same pull request.
+  bundle's (`phase-5-tooling.md`), its sessions' access to the cluster and the docs
+  (`claude-code-cluster-access.md`) and check Linear's (`linear-check.md`). A change keeps those it touches true, in the
+  same pull request.
 - Pages at `https://docs.dev.kfirs.com/<path>` (every repository's `docs/`) are behind the hub's sign-in. Read one with
   `curl -fsS https://storage.googleapis.com/arikkfir-docs/.layers/<repository>/<path>`, where `<repository>` is the
   path's first segment when it names a repository (`infra/terraform/gcp.md` is `infra`'s) and `docs` otherwise

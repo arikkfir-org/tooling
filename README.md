@@ -114,6 +114,19 @@ are in the [design](https://docs.dev.kfirs.com/hub/designs/docs-site-composition
 Both are organization pipelines; their runs take `docs-site/` from this repository's default branch, never from the
 change under test.
 
+## Linear check
+
+Check `Linear` passes a pull request that Linear links to an issue, or that carries the label `skip-linear`, and fails
+any other; every repository's default branch requires it ([design](docs/tooling/designs/linear-check.md)).
+
+| File | Role |
+| --- | --- |
+| [`linear/check.yaml`](linear/check.yaml) | Pipeline `linear` (check `Linear`), in a sandboxed pod: takes `linear/` from this repository's default branch, then runs the check with Secret `linear-api-key` |
+| [`linear/check.py`](linear/check.py) | Reads the pull request's labels from GitHub and asks Linear for the issues attached to its address, again every 10 seconds for up to 2 minutes; passes merge groups without asking |
+
+It never fetches the pull request's code. Its runs take `linear/` from this repository's default branch, like the docs
+site's.
+
 ## Organization pipelines
 
 This is the hub's organization repository: Octomaton's `OCTOMATON_ORGANIZATION_REPOSITORY` names it. The pipelines
@@ -126,6 +139,7 @@ Their runs belong to the repository they run for: its namespace, checks and toke
 | `review` | `AI Review` | a review is requested from `arikkfir-reviewer` |
 | `docs` | `Docs` | pull requests and merge groups |
 | `docs-publish` | `docs-publish` | pushes to `main` |
+| `linear` | `Linear` | pull requests: opened, reopened, new commits, edits and label changes; merge groups, which pass without asking |
 
 ## Development
 

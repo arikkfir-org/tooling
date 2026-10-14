@@ -78,3 +78,27 @@ organization:
       concurrency:
         group: docs-publish
         policy: latest
+    # Check Linear (docs/tooling/designs/linear-check.md): every pull request links a Linear issue or carries the label
+    # skip-linear (CONTRIBUTING.md in arikkfir-org/docs, "Linear"). linear/check.py asks Linear's API, with a read-only
+    # key that Octomaton lets this pipeline mount only because it is read here, at main.
+    - name: linear
+      displayName: Linear
+      pipelineRun: linear/check.yaml
+      on:
+        # Every pull request, whatever its base. Its description and labels decide the check, so editing them runs it
+        # again at the same commit, and each new head commit needs a check of its own.
+        pull_request:
+          types: [opened, reopened, synchronize, edited, labeled, unlabeled]
+        # The merge queue requires the check too. A merge group passes without asking Linear: its pull requests
+        # passed the check to enter the queue.
+        merge_group: {}
+      params:
+        repository: "{{ .Repository.FullName }}"
+        number: "{{ if .PullRequest }}{{ .PullRequest.Number }}{{ end }}"
+        merge-group: "{{ if .MergeGroup }}{{ .MergeGroup.HeadRef }}{{ end }}"
+      # Reads the pull request: its labels and its address.
+      githubToken:
+        workspace: github-token
+        permissions: {pull_requests: read}
+      secrets: [linear-api-key]
+      timeout: 5m
