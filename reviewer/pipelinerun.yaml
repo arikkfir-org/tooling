@@ -1,4 +1,4 @@
-# The pull request reviewer (https://github.com/arikkfir-org/docs/blob/main/hub/designs/pr-reviewer.md). Octomaton runs
+# The pull request reviewer (https://docs.dev.kfirs.com/tooling/designs/pr-reviewer.md). Octomaton runs
 # it when a review is requested from arikkfir-reviewer, reading this file at tooling's default branch for every
 # repository. It sets spec.params and binds workspace github-token, an installation token that reads the code and pull
 # requests of every repository of the organization. review checks out the pull request's repository on the volume, with

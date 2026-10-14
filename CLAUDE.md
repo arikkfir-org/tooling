@@ -23,8 +23,8 @@ request reviewer (`reviewer/`), and the organization pipelines every repository 
 - `reviewer/report.py` holds `arikkfir-reviewer`'s token: it never runs or trusts anything from the shared volume, and
   reads only `findings.json` there, as data. Its step, the `review` task's last, is the only container with the token,
   runs its own clone of this repository, and keeps `HOME` and its working directory off the volume.
-- The findings schema lives in `reviewer/prompt.md`, `reviewer/findings.py` and the design (`hub/designs/pr-reviewer.md`
-  in `arikkfir-org/docs`). Change them together.
+- The findings schema lives in `reviewer/prompt.md`, `reviewer/findings.py` and the design
+  (`docs/tooling/designs/pr-reviewer.md`). Change them together.
 - `docs-site/`: the docs site's organization pipelines (`docs`, `docs-publish`). Their runs take `docs-site/` from the
   default branch and treat the repository under test as data. `compose.py` is stdlib-only and covered by
   `tests/test_docs_site.py`; `links.lua` by `tests/test_links.sh`.
@@ -34,6 +34,16 @@ request reviewer (`reviewer/`), and the organization pipelines every repository 
 - Every reviewer step and the sidecar run in `me-west1-docker.pkg.dev/arikkfir/images/reviewer`, which
   `arikkfir-org/octomaton` builds (`images/reviewer`): one image for a node to pull. Run its `main` tag with
   `imagePullPolicy: Always`, the same in every step; add tools there, not here.
+
+## Docs
+
+- This repository's designs are in `docs/tooling/`: the reviewer's (`pr-reviewer.md`) and the Claude Code bundle's
+  (`phase-5-tooling.md`). A change keeps those it touches true, in the same pull request.
+- Pages at `https://docs.dev.kfirs.com/<path>` (every repository's `docs/`) are behind the hub's sign-in. Read one with
+  `curl -fsS https://storage.googleapis.com/arikkfir-docs/.layers/<repository>/<path>`, where `<repository>` is the
+  path's first segment when it names a repository (`infra/terraform/gcp.md` is `infra`'s) and `docs` otherwise
+  (`hub/reference.md`). Don't clone a repository to read its docs. Never write that hostname or bucket into `claude/`,
+  which is public.
 
 ## Before finishing a change
 

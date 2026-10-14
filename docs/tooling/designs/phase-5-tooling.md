@@ -92,7 +92,7 @@ Bundles are immutable (`Cache-Control: immutable`); `setup.sh` is `no-cache`. Bo
 | Principal | Role | On |
 | --- | --- | --- |
 | `allUsers` | `roles/storage.legacyObjectReader` (no listing) | `arikkfir-claude` |
-| `ci-tooling/ci-tooling-publish` (Workload Identity; `main` only, see [CI ServiceAccounts](../../hub/designs/ci-service-accounts.md)) | `roles/storage.objectUser`, `roles/storage.legacyBucketReader` | `arikkfir-claude` |
+| `ci-tooling/ci-tooling-publish` (Workload Identity; `main` only, see Octomaton's [tenancy and identity](../../octomaton/designs/phase-2-octomaton.md#tenancy-and-identity)) | `roles/storage.objectUser`, `roles/storage.legacyBucketReader` | `arikkfir-claude` |
 
 ## Decisions
 
