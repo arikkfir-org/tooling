@@ -44,3 +44,8 @@ Q: Why did the Docs check fail on this pull request?
   asked to look again is stranded.
 - A raw `curl` to `api.github.com` is the last resort: the session's proxy swaps in its own credentials, so the reply is
   authored by `claude[bot]`, not you. Say so when you use it.
+
+# Linear ticket links
+
+- Write every Linear issue ID (e.g. ENG-123) as a Markdown link: [ENG-123](https://linear.app/arikkfir/issue/ENG-123).
+  Every time, including in summaries, artifacts, lists and commit messages.
