@@ -6,10 +6,15 @@ commentable lines; then pr.log and pr.diff; the house rules (docs' CONTRIBUTING.
 their line numbers; the repository's CLAUDE.md and README.md; and the changed files as they are at the commit under
 review, as many as fit.
 
+On a later round, it says what this round is. When the pull request changed little since the reviewer's last review
+(at most INCREMENTAL_MAX_LINES lines in the files it touches, and at most half the lines it changes), the model gets
+that change and reviews it incrementally, unless it judges the change significant or risky; otherwise, or when the
+reviewed commit is gone (a rebase), it reviews the whole pull request again.
+
 It runs in the review step, in the pull request's checkout, which the pull request controls: it reads only regular
 files inside the checkout and docs, never through a link, and writes nothing but its output.
 
-Usage: brief.py --prompt PROMPT --docs DIR [--checkout DIR]
+Usage: brief.py --prompt PROMPT --docs DIR [--checkout DIR] [--remote URL]
 """
 
 import argparse
@@ -17,6 +22,7 @@ import json
 import os
 import re
 import stat
+import subprocess
 import sys
 
 DIFF_LIMIT = 200_000  # bytes of pr.diff
@@ -25,6 +31,8 @@ RULES_LIMIT = 64_000  # bytes of each rules file
 FILE_LIMIT = 48_000  # bytes of each changed file
 FILES_BUDGET = 200_000  # bytes of all the changed files together
 CHANGED = {"added", "modified", "renamed", "copied", "changed"}
+INCREMENTAL_MAX_LINES = 300  # changed lines since the last review, beyond which a round reviews everything again
+SUBMITTED = {"APPROVED", "CHANGES_REQUESTED", "COMMENTED"}
 
 
 def read(root, path, limit):
@@ -160,11 +168,87 @@ def attached(title, root, path, limit, info=""):
     return [f"## {title}", "", fenced(text, info), ""]
 
 
-def changed_files(state, checkout):
-    """The changed files at the commit under review, in pr.json's order while they fit FILES_BUDGET, and a list of
-    those left out."""
+def git(checkout, *args):
+    return subprocess.run(["git", "-C", checkout, *args], capture_output=True, text=True)
+
+
+def changed_lines(diff):
+    return sum(1 for line in diff.splitlines() if line[:1] in "+-" and not line.startswith(("+++", "---")))
+
+
+def last_review(state):
+    """The reviewer's latest submitted review, or None."""
+    reviewer = (state.get("reviewer") or "").lower()
+    mine = [review for review in state.get("reviews") or [] if review.get("commit_id")
+            and (login(review.get("user")) or "").lower() == reviewer and review.get("state") in SUBMITTED]
+    return max(mine, key=lambda review: review.get("submitted_at") or "", default=None)
+
+
+def this_round(state, checkout, remote=None):
+    """What this round reviews: {"mode": "first"}, or, after an earlier review, "incremental" or "full", with the
+    reviewed commit ("since"), the change since then ("diff", "files", "lines") or why it's all reviewed again."""
+    review = last_review(state)
+    if review is None:
+        return {"mode": "first"}
+    since, revision = review["commit_id"], state["revision"]
+    found = {"since": since, "review": review}
+    present = git(checkout, "cat-file", "-e", f"{since}^{{commit}}").returncode == 0
+    if not present and remote:
+        git(checkout, "fetch", "--quiet", remote, since)
+        present = git(checkout, "cat-file", "-e", f"{since}^{{commit}}").returncode == 0
+    if not present:
+        return {**found, "mode": "full", "why": "gone"}
+    paths = set()
+    for file in state.get("files") or []:
+        paths.update(name for name in (file.get("filename"), file.get("previous_filename")) if name)
+    before = git(checkout, "diff", "--name-only", f"origin/{state['baseRef']}...{since}")
+    if before.returncode == 0:
+        paths.update(line for line in before.stdout.splitlines() if line)
+    diff = git(checkout, "diff", since, revision, "--", *sorted(paths)).stdout if paths else ""
+    files = [line for line in git(checkout, "diff", "--name-only", since, revision, "--", *sorted(paths))
+             .stdout.splitlines() if line] if paths else []
+    lines = changed_lines(diff)
+    total = sum((file.get("additions") or 0) + (file.get("deletions") or 0) for file in state.get("files") or [])
+    found.update(diff=diff, files=files, lines=lines, total=total)
+    if lines > INCREMENTAL_MAX_LINES or (total and lines * 2 > total):
+        return {**found, "mode": "full", "why": "large"}
+    return {**found, "mode": "incremental"}
+
+
+def round_section(found, revision):
+    """The brief's account of this round."""
+    if found["mode"] == "first":
+        return ["# This round", "", "Your first review of this pull request: review all of it.", ""]
+    since, review = found["since"][:7], found["review"]
+    when = f"You last reviewed this pull request at `{since}` ({review.get('state')}, {review.get('submitted_at')})"
+    if found["mode"] == "full":
+        if found["why"] == "gone":
+            why = f"{when}, a commit no longer in its history: it was rebased or force-pushed since."
+        else:
+            why = (f"{when}. It has changed by {found['lines']} lines since, in the files it touches, which is more "
+                   f"than {INCREMENTAL_MAX_LINES} lines or half of the {found['total']} lines it changes.")
+        return ["# This round", "", f"{why} Review the whole pull request again, as on a first round, and every "
+                "earlier thread with its replies.", ""]
+    files = ", ".join(f"`{name}`" for name in found["files"]) or "none"
+    return ["# This round", "",
+            f"{when}. Since then it has changed by {found['lines']} of the {found['total']} lines it changes, in "
+            f"these files: {files}. That change is below (`git diff {found['since']} {revision} -- <the files the "
+            "pull request touches>`).", "",
+            "Judge it first. If it is significant or risky (new behaviour, a security or data path, an interface "
+            "that other code or repositories rely on, a rewrite of what you reviewed), or you can't tell, review the "
+            "whole pull request again, as on a first round. Otherwise review this round incrementally: the change "
+            "since your last review and the code it touches, and every earlier thread with its replies. Either way, "
+            "raise again every earlier finding that still holds: one you leave out is resolved. Open the summary "
+            f"with what you reviewed: \"The changes since `{since}`: …\" or \"The whole pull request: …\".", "",
+            fenced(found["diff"], "diff") if found["diff"] else "(No change to the files it touches.)", ""]
+
+
+def changed_files(state, checkout, only=None):
+    """The changed files at the commit under review (those in only, when given), in pr.json's order while they fit
+    FILES_BUDGET, and a list of those left out."""
     out, left, budget = [], [], FILES_BUDGET
-    files = [f for f in state.get("files") or [] if f.get("status") in CHANGED]
+    files = [f for f in state.get("files") or [] if f.get("status") in CHANGED
+             and (only is None or f.get("filename") in only)]
     for file in files:
         name = file.get("filename") or ""
         text, why = read(checkout, name, FILE_LIMIT)
@@ -180,13 +264,15 @@ def changed_files(state, checkout):
     return out
 
 
-def compose(prompt, checkout, docs):
+def compose(prompt, checkout, docs, remote=None):
     """The first message of the review."""
     with open(os.path.join(checkout, "pr.json"), encoding="utf-8") as f:
         state = json.load(f)
+    found = this_round(state, checkout, remote)
     out = [prompt.rstrip("\n"), "", "---", "",
            "Everything below was read for you from the files at the checkout's root and from `docs`, and is current "
-           "and complete: don't read it again.", "", *pull_request(state), ""]
+           "and complete: don't read it again.", "", *round_section(found, state["revision"]), *pull_request(state),
+           ""]
     log, why = read(checkout, "pr.log", LOG_LIMIT)
     out += ["## Commits (`pr.log`)", "", fenced(log) if log is not None else f"`pr.log` is {why}: read it yourself.",
             ""]
@@ -208,8 +294,12 @@ def compose(prompt, checkout, docs):
             "to you.", ""]
     out += attached("`CLAUDE.md`", checkout, "CLAUDE.md", RULES_LIMIT, "markdown")
     out += attached("`README.md`", checkout, "README.md", RULES_LIMIT, "markdown")
-    out += ["# The changed files at the commit under review", ""]
-    out += changed_files(state, checkout)
+    if found["mode"] == "incremental":
+        out += ["# The files changed since your last review, at the commit under review", ""]
+        out += changed_files(state, checkout, set(found["files"]))
+    else:
+        out += ["# The changed files at the commit under review", ""]
+        out += changed_files(state, checkout)
     return "\n".join(out).rstrip("\n") + "\n"
 
 
@@ -218,10 +308,11 @@ def main(argv=None):
     parser.add_argument("--prompt", required=True, help="prompt.md")
     parser.add_argument("--docs", required=True, help="a checkout of arikkfir-org/docs")
     parser.add_argument("--checkout", default=".", help="the pull request's checkout, with pr.json at its root")
+    parser.add_argument("--remote", help="where to fetch the last reviewed commit from when the checkout lacks it")
     args = parser.parse_args(argv)
     with open(args.prompt, encoding="utf-8") as f:
         prompt = f.read()
-    sys.stdout.buffer.write(compose(prompt, args.checkout, args.docs).encode())
+    sys.stdout.buffer.write(compose(prompt, args.checkout, args.docs, args.remote).encode())
     return 0
 
 

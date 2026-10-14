@@ -114,6 +114,10 @@ Its likelihood is how likely it is to go wrong:
 
 ## Earlier rounds
 
+What this round reviews is stated below, under "This round": your first review; the change since your last review,
+when it is small, unless you judge it significant or risky; or, after a larger change or a rebase, the whole pull
+request again. An incremental round still answers every earlier thread.
+
 Every finding has a code, such as `IAM-3`, and its own thread. For each of your earlier threads:
 
 - If the problem still holds, raise it again under the same code. Answer the author's latest reply when there is one,

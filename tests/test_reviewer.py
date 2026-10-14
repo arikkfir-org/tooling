@@ -947,6 +947,111 @@ class BriefTest(unittest.TestCase):
         self.assertTrue(result.stdout.decode().startswith("Review this pull request.\n"))
 
 
+class RoundTest(unittest.TestCase):
+    """brief.py on a later round: the change since the reviewer's last review, in a real repository. main has a.txt and
+    b.txt; the pull request's first commit (reviewed) changes both, and later commits change a.txt."""
+
+    ENV = {"PATH": os.environ["PATH"], "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull,
+           "GIT_TERMINAL_PROMPT": "0"}
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.root)
+        patcher = mock.patch.dict(os.environ, {"GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.repo = os.path.join(self.root, "infra")
+        os.makedirs(self.repo)
+        self.git("init", "--quiet", "--initial-branch=main")
+        self.commit({"a.txt": "a\n" * 10, "b.txt": "b\n" * 10}, "Start")
+        self.git("update-ref", "refs/remotes/origin/main", "HEAD")
+        self.reviewed = self.commit({"a.txt": "a\n" * 30, "b.txt": "b\n" * 12}, "The reviewed commit")
+
+    def git(self, *args, cwd=None):
+        return subprocess.run(["git", "-C", cwd or self.repo, "-c", "user.name=Test", "-c", "user.email=t@example.com",
+                               *args], env=self.ENV, capture_output=True, text=True, check=True).stdout.strip()
+
+    def commit(self, files, message):
+        for name, text in files.items():
+            with open(os.path.join(self.repo, name), "w", encoding="utf-8") as f:
+                f.write(text)
+        self.git("add", "--all")
+        self.git("commit", "--quiet", f"--message={message}")
+        return self.git("rev-parse", "HEAD")
+
+    def state(self, revision, reviews, additions):
+        return {"repository": "arikkfir-org/infra", "number": 7, "revision": revision, "baseRef": "main",
+                "reviewer": REVIEWER, "pr": {"title": "T", "user": {"login": "arikkfir"}},
+                "files": [{"filename": name, "status": "modified", "additions": count, "deletions": 0,
+                           "commentable": {"RIGHT": [[1, 2]], "LEFT": []}} for name, count in additions.items()],
+                "comments": [], "reviews": reviews, "codes": {}}
+
+    def review(self, commit, user=REVIEWER, state="CHANGES_REQUESTED", at="2026-10-14T10:00:00Z"):
+        return {"id": 1, "user": {"login": user}, "state": state, "commit_id": commit, "submitted_at": at,
+                "threads": []}
+
+    def compose(self, state, remote=None):
+        with open(os.path.join(self.repo, "pr.json"), "w", encoding="utf-8") as f:
+            json.dump(state, f)
+        return brief.compose("Prompt.\n", self.repo, self.repo, remote)
+
+    def test_a_first_round_reviews_everything(self):
+        head = self.commit({"a.txt": "a\n" * 32}, "More")
+        others = ([], [self.review(self.reviewed, user="arikkfir")], [self.review(self.reviewed, state="PENDING")])
+        for reviews in others:
+            with self.subTest(reviews=reviews):
+                text = self.compose(self.state(head, reviews, {"a.txt": 22, "b.txt": 2}))
+                self.assertIn("# This round\n\nYour first review of this pull request: review all of it.", text)
+                self.assertIn("# The changed files at the commit under review", text)
+
+    def test_a_small_change_is_reviewed_incrementally(self):
+        head = self.commit({"a.txt": "a\n" * 32}, "Two more lines")
+        text = self.compose(self.state(head, [self.review("0" * 40, at="2026-10-13T10:00:00Z"),
+                                              self.review(self.reviewed)], {"a.txt": 22, "b.txt": 2}))
+        self.assertIn(f"You last reviewed this pull request at `{self.reviewed[:7]}` (CHANGES_REQUESTED, "
+                      "2026-10-14T10:00:00Z). Since then it has changed by 2 of the 24 lines it changes, in these "
+                      "files: `a.txt`.", text)
+        self.assertIn("raise again every earlier finding that still holds: one you leave out is resolved.", text)
+        self.assertIn(f'"The changes since `{self.reviewed[:7]}`: …"', text)
+        self.assertRegex(text, r"```diff\ndiff --git a/a.txt b/a.txt\n(.*\n)*\+a\n\+a\n```")
+        changed = text[text.index("# The files changed since your last review, at the commit under review"):]
+        self.assertIn("## a.txt", changed)
+        self.assertNotIn("## b.txt", changed)
+
+    def test_a_large_change_is_reviewed_whole(self):
+        head = self.commit({"a.txt": "a\n" * 45}, "Fifteen more lines")
+        text = self.compose(self.state(head, [self.review(self.reviewed)], {"a.txt": 23, "b.txt": 2}))
+        self.assertIn("It has changed by 15 lines since, in the files it touches, which is more than 300 lines or "
+                      "half of the 25 lines it changes. Review the whole pull request again", text)
+        self.assertIn("## b.txt", text[text.index("# The changed files at the commit under review"):])
+
+    def test_more_lines_than_the_limit_are_reviewed_whole(self):
+        head = self.commit({"a.txt": "a\n" * 30 + "c\n" * (brief.INCREMENTAL_MAX_LINES + 1)}, "Many lines")
+        text = self.compose(self.state(head, [self.review(self.reviewed)], {"a.txt": 10_000}))
+        self.assertIn(f"It has changed by {brief.INCREMENTAL_MAX_LINES + 1} lines since", text)
+
+    def test_a_rebased_away_commit_is_reviewed_whole(self):
+        head = self.commit({"a.txt": "a\n" * 32}, "More")
+        text = self.compose(self.state(head, [self.review("f" * 40)], {"a.txt": 22, "b.txt": 2}))
+        self.assertIn(f"You last reviewed this pull request at `fffffff` (CHANGES_REQUESTED, 2026-10-14T10:00:00Z), "
+                      "a commit no longer in its history", text)
+
+    def test_a_missing_commit_is_fetched_from_the_remote(self):
+        # The checkout holds only the new head's history; the reviewed commit is on a branch of the remote.
+        self.git("branch", "reviewed", self.reviewed)
+        self.git("checkout", "--quiet", "--detach", "HEAD~1")
+        head = self.commit({"a.txt": "a\n" * 31}, "Rewritten")
+        self.git("branch", "head", head)
+        checkout = os.path.join(self.root, "checkout")
+        self.git("clone", "--quiet", "--no-local", "--single-branch", "--branch", "head", self.repo, checkout,
+                 cwd=self.root)
+        self.git("update-ref", "refs/remotes/origin/main", f"{head}~1", cwd=checkout)
+        self.repo, remote = checkout, self.repo
+        state = self.state(head, [self.review(self.reviewed)], {"a.txt": 21})
+        self.assertIn("a commit no longer in its history", self.compose(state))
+        self.assertIn("Since then it has changed by", self.compose(state, remote))
+
+
 class PipelineRunTest(unittest.TestCase):
     def test_reports_results_fit_its_share_of_termination_messages(self):
         # Kubernetes splits 12 KiB of termination messages equally among a pod's containers: Tekton's 3 init
@@ -1632,7 +1737,8 @@ class ReviewPipelineRunTest(unittest.TestCase):
                 result, args = self.run_model_step("review", mounted=None, name=name, calls=calls)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(calls.get("git"), clones)
-                self.assertEqual(calls["brief"], f"--prompt ../.review/prompt.md --docs {docs}")
+                self.assertEqual(calls["brief"], f"--prompt ../.review/prompt.md --docs {docs} "
+                                                 f"--remote http://127.0.0.1:8080/git/arikkfir-org/{name}.git")
                 self.assertEqual(calls["stdin"], "brief\n")
 
     def test_a_failed_docs_clone_leaves_the_review_running(self):
