@@ -927,6 +927,14 @@ class BriefTest(unittest.TestCase):
         text = brief.compose("Prompt.\n", self.checkout, self.docs)
         self.assertIn("## `README.md`\n\nNot attached (missing): read it yourself if you need it.", text)
 
+    def test_a_failed_docs_clone_tells_the_model_to_clone_it(self):
+        # The prompt says docs is at /tmp/docs; when its clone failed, the brief says it isn't.
+        shutil.rmtree(self.docs)
+        text = brief.compose("Prompt.\n", self.checkout, self.docs)
+        self.assertIn(f"`docs` isn't at `{self.docs}`: its clone failed. Clone it there yourself when you need it: "
+                      f"`git clone --quiet http://127.0.0.1:8080/git/arikkfir-org/docs.git {self.docs}`.", text)
+        self.assertNotIn("its clone failed", brief.compose("Prompt.\n", self.checkout, self.checkout))
+
     def test_a_link_on_the_way_is_refused(self):
         os.symlink(self.docs, os.path.join(self.checkout, "linked"))
         self.assertEqual(brief.read(self.checkout, "linked/CONTRIBUTING.md", 1000), (None, "a link"))

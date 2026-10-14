@@ -195,6 +195,9 @@ def compose(prompt, checkout, docs):
             fenced(diff, "diff") if diff is not None else f"`pr.diff` is {why}: read it yourself, a file at a time.",
             ""]
     out += ["# House rules", ""]
+    if not os.path.isdir(docs):
+        out += [f"`docs` isn't at `{docs}`: its clone failed. Clone it there yourself when you need it: `git clone "
+                f"--quiet http://127.0.0.1:8080/git/arikkfir-org/docs.git {docs}`.", ""]
     out += attached("`CONTRIBUTING.md` in `docs`", docs, "CONTRIBUTING.md", RULES_LIMIT, "markdown")
     reference, why = read(docs, "hub/reference.md", 1_000_000)
     out += ["## The contract's headings: `hub/reference.md` in `docs`", "",
