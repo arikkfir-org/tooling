@@ -303,8 +303,11 @@ spec:
                     || echo "Couldn't clone docs for the brief; the model will." >&2
                 fi
                 # The first message is the prompt and what every review reads first (brief.py): the pull request, the
-                # house rules, the repository's rules and the changed files, so the model's turns go to the review.
-                python3 ../.review/brief.py --prompt ../.review/prompt.md --docs "${docs}" > /tmp/brief.md
+                # house rules, the repository's rules and the changed files, so the model's turns go to the review. On
+                # a later round it holds the change since the last review, which a small change limits the round to;
+                # a reviewed commit a rebase dropped is fetched through the sidecar, if GitHub still has it.
+                python3 ../.review/brief.py --prompt ../.review/prompt.md --docs "${docs}" \
+                  --remote "http://127.0.0.1:8080/git/${REPOSITORY}.git" > /tmp/brief.md
                 # Low reasoning effort: the review is many short turns of reading and searching. --thinking puts the
                 # reasoning in this step's log, the only record of it once the pod is gone.
                 opencode run --pure --variant low --format default --thinking < /tmp/brief.md
