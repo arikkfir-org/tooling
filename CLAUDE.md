@@ -37,8 +37,8 @@ request reviewer (`reviewer/`), and the organization pipelines every repository 
 
 ## Docs
 
-- This repository's designs are in `docs/tooling/`: the reviewer's (`pr-reviewer.md`) and the Claude Code bundle's
-  (`phase-5-tooling.md`). A change keeps those it touches true, in the same pull request.
+- This repository's designs are in `docs/tooling/designs/`: the reviewer's (`pr-reviewer.md`) and the Claude Code
+  bundle's (`phase-5-tooling.md`). A change keeps those it touches true, in the same pull request.
 - Pages at `https://docs.dev.kfirs.com/<path>` (every repository's `docs/`) are behind the hub's sign-in. Read one with
   `curl -fsS https://storage.googleapis.com/arikkfir-docs/.layers/<repository>/<path>`, where `<repository>` is the
   path's first segment when it names a repository (`infra/terraform/gcp.md` is `infra`'s) and `docs` otherwise
