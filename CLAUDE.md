@@ -44,7 +44,7 @@ request reviewer (`reviewer/`), and the organization pipelines every repository 
 - Pages at `https://docs.dev.kfirs.com/<path>` (every repository's `docs/`) are behind the hub's sign-in. Read one with
   `curl -fsS https://storage.googleapis.com/arikkfir-docs/.layers/<repository>/<path>`, where `<repository>` is the
   path's first segment when it names a repository (`infra/terraform/gcp.md` is `infra`'s) and `docs` otherwise
-  (`hub/reference.md`). Don't clone a repository to read its docs. Never write that hostname or bucket into `claude/`,
+  (`CONTRIBUTING.md`). Don't clone a repository to read its docs. Never write that hostname or bucket into `claude/`,
   which is public.
 
 ## Before finishing a change

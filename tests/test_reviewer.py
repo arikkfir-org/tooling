@@ -854,8 +854,6 @@ class BriefTest(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.root)
         self.checkout, self.docs = os.path.join(self.root, "infra"), os.path.join(self.root, "docs")
         self.write(self.docs, "CONTRIBUTING.md", "# Contributing\n\nWrap errors.\n")
-        self.write(self.docs, "hub/reference.md", "# Hub reference\n\n## Network\n\n```sh\n# not a heading\n```\n\n"
-                                                  "## Octomaton\n")
         self.write(self.checkout, "CLAUDE.md", "# infra\n\nApply with care.\n")
         self.write(self.checkout, "README.md", "# infra readme\n")
         self.write(self.checkout, "main.tf", 'resource "x" "y" {}\n')
@@ -899,12 +897,14 @@ class BriefTest(unittest.TestCase):
                      "- `IAM-1` on `main.tf` line 1-2 (RIGHT), open:", "  - **arikkfir** (t2):\n    > Narrowed.",
                      "- `IAM-1` (open): Too broad", '- added `main.tf`: RIGHT [[1,2]], LEFT []',
                      "Add the resource\n```", "```diff\ndiff --git a/main.tf b/main.tf\n+resource\n```",
-                     "Wrap errors.", "    3  ## Network\n    9  ## Octomaton", "Apply with care.", "# infra readme",
-                     '## main.tf\n\n```\nresource "x" "y" {}\n```', "`````\n````\ninside four backticks\n````\n`````"):
+                     "Apply with care.", "# infra readme", '## main.tf\n\n```\nresource "x" "y" {}\n```',
+                     "`````\n````\ninside four backticks\n````\n`````"):
             with self.subTest(part=part):
                 self.assertIn(part, text)
-        self.assertNotIn("not a heading\n```\n\nRead", text)
-        self.assertNotIn("    6  # not a heading", text)
+        # The house rules are docs' CONTRIBUTING.md, whole, and nothing else of docs.
+        house = text[text.index("# House rules\n"):text.index("# The repository's rules\n")]
+        self.assertEqual(house, "# House rules\n\n## `CONTRIBUTING.md` in `docs`\n\n```markdown\n# Contributing\n\n"
+                                "Wrap errors.\n```\n\n")
 
     def test_the_brief_leaves_out_what_it_must_not_read(self):
         text = brief.compose("Prompt.\n", self.checkout, self.docs)

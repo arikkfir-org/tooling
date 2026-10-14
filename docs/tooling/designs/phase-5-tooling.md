@@ -9,10 +9,10 @@
 ```mermaid
 flowchart LR
   subgraph repo[arikkfir-org/tooling]
-    C[claude/<br/>CLAUDE.md, settings.json,<br/>hooks/*.py]
+    C[claude/<br/>CLAUDE.md, settings.json,<br/>mcp.json, hooks/*.py]
     S[setup/setup.sh]
   end
-  repo -- push to main --> SB[Octomaton] --> TK[Tekton<br/>build, lint, test,<br/>gitleaks, publish]
+  repo -- push to main --> SB[Octomaton] --> TK[Tekton publish<br/>build, verify,<br/>gitleaks, upload]
   TK --> B[(gs://arikkfir-claude<br/>bundles/&lt;sha256&gt;.tar.gz<br/>setup.sh)]
   E[Claude Code on the web<br/>environment setup script] -- "curl …/setup.sh | bash" --> B
   E --> H["~/.claude<br/>CLAUDE.md, settings.json,<br/>hooks/arikkfir/"]
@@ -23,7 +23,8 @@ flowchart LR
 | File | Purpose |
 | --- | --- |
 | `CLAUDE.md` | Lead with the answer; answer only what was asked; one to three lines by default; "Yes" or "No" first; findings without their evidence, in plain terms; terse, plain language; no preaching or hedging; how to answer review threads |
-| `settings.json` | Registers the hooks. Allows the repositories' checks, local git and the read-only GitHub tools without a prompt, and asks before a push that deletes a branch or a switch that discards changes or resets a branch |
+| `settings.json` | Registers the hooks. Allows the repositories' checks, local git, the read-only GitHub tools and the `gke` MCP server's read tools without a prompt, denies that server's write tools, and asks before a push that deletes a branch or a switch that discards changes or resets a branch |
+| `mcp.json` | MCP servers: `gke`, GKE's remote MCP server, which reads the hub cluster ([cluster and docs access](claude-code-cluster-access.md)) |
 | `hooks/guard.py` (`PreToolUse`, Bash) | Denies force-pushes and deletions targeting `main`/`master` (explicit, `HEAD`, or the checked-out branch) and recursive deletion of `/` or the home directory. Asks, even where an allow rule matches, before deleting any other remote branch and before a `git switch` that discards changes or resets a branch, however its options are spelled |
 | `hooks/commit_message.py` (`PreToolUse`, Bash) | In `arikkfir-org` repositories, denies a `git commit` whose message breaks the commit rules of `CONTRIBUTING.md`, listing what to fix |
 | `hooks/add_repo.py` (`PreToolUse`, the remote-session server's `add_repo` and `register_repo_root`) | Allows attaching one of `arikkfir-org`'s public repositories without a prompt; `fin` and a repository not listed yet still ask |
@@ -54,7 +55,8 @@ user-level files written into `~/.claude` are loaded like on a workstation.
 
 `setup.sh` is pinned at build time to one content-addressed bundle. It downloads it, checks the SHA-256, installs
 `CLAUDE.md`, replaces `hooks/arikkfir/` as a whole, merges `settings.json` into any existing settings (bundle values
-win), and records the bundle it installed in `hooks/arikkfir/.bundle`. Running it twice changes nothing. On any failure
+win), adds `mcp.json`'s servers to Claude Code's global config (`.claude.json`), replacing servers of the same name,
+and records the bundle it installed in `hooks/arikkfir/.bundle`. Running it twice changes nothing. On any failure
 it warns and exits 0, because a failed setup script would stop the session from starting; `ARIKKFIR_CLAUDE_STRICT=1`
 makes failures fatal.
 
@@ -69,10 +71,10 @@ compaction or resume.
 
 ## Publication
 
-| Pipeline (`.octomaton.yaml`) | Trigger | Steps (`.tekton/bundle.yaml`) |
-| --- | --- | --- |
-| `ci` | pull requests, merge queue | build, shellcheck, unit and end-to-end tests, verify, gitleaks |
-| `publish` | push to `main` | the same, then upload |
+| Pipeline (`.octomaton.yaml`) | PipelineRun | Trigger | Steps |
+| --- | --- | --- | --- |
+| `ci` (check `Continuous Integration`) | `.tekton/ci.yaml` | pull requests, merge queue | `build`; `lint` (shellcheck); `test` (unit tests, `verify.py`, the end-to-end install test); `links` (`docs-site/links.lua` against a composed site); `scan` (gitleaks over the bundle and the repository) |
+| `publish` | `.tekton/publish.yaml` | push to `main` | `build`; `verify`; `scan` (gitleaks over the bundle); `upload`, as `ci-tooling-publish` |
 
 Uploads go bundle first, then `setup.sh`, so the published setup script never points at a bundle that isn't there.
 Bundles are immutable (`Cache-Control: immutable`); `setup.sh` is `no-cache`. Both use
@@ -83,11 +85,13 @@ Bundles are immutable (`Cache-Control: immutable`); `setup.sh` is `no-cache`. Bo
 | Guard | Stops |
 | --- | --- |
 | `git archive` of committed `claude/` only | Untracked or ignored local files |
-| `verify.py` allowlist (`CLAUDE.md`, `settings.json`, `hooks/*.py`), 256 KiB cap | Unexpected files, binaries, archives |
-| `verify.py` rejects `env`, `apiKeyHelper` and other credential-bearing settings keys | Credentials configured through settings |
+| `verify.py` allowlist (`CLAUDE.md`, `settings.json`, `mcp.json`, `hooks/*.py`), 256 KiB cap | Unexpected files, binaries, archives |
+| `verify.py` rejects `env`, `apiKeyHelper` and other credential-bearing settings keys, and MCP servers' `headers`, `headersHelper`, `env` and `oauth` | Credentials configured through settings or MCP servers |
 | gitleaks over the extracted bundle and the repository | Tokens and keys in allowed files |
 
 ## Access
+
+Bucket `arikkfir-claude` and its grants are `infra`'s ([root gcp, Buckets](../../infra/terraform/gcp.md#buckets)):
 
 | Principal | Role | On |
 | --- | --- | --- |
