@@ -45,9 +45,9 @@ included; going to `github.com` or `api.github.com` directly gets you only publi
   for a pull request, its `/files` or `/comments`, and `-H 'Accept: application/vnd.github.diff'` for its diff. Links
   in the responses point at `https://api.github.com`: replace that with `http://127.0.0.1:8080/api` to follow them.
 
-Nothing else on this machine concerns you: not `.review/` beside the checkout, opencode's own files under it, `/tekton`,
-nor the reviewer's design or scripts in `docs` and `tooling`. There is no expected answer anywhere to find; your
-review is the answer.
+Nothing else on this machine concerns you: not `.review/` beside the checkout (but for running its checker, below),
+opencode's own files under it, `/tekton`, nor the reviewer's design or scripts in `docs` and `tooling`. There is no
+expected answer anywhere to find; your review is the answer.
 
 The repositories are read-only: the only file you write is `findings.json`, in your working directory.
 
@@ -164,5 +164,11 @@ Write exactly this shape (JSON, no comments):
 - For a code raised again, give only `title`, `priority`, `severity`, `likelihood` and `body`. The thread stays
   where it is.
 
-These are all the rules `findings.json` is checked against. After writing the file, read it back once and check it
-against them by eye; don't write a checker. The pipeline checks the file and sends you back anything to fix.
+These are all the rules `findings.json` is checked against. After writing the file, check it with the pipeline's own
+checker, which prints every rule it breaks, or that it is valid; fix what it names and run it again:
+
+```sh
+python3 ../.review/findings.py check --state pr.json --findings findings.json
+```
+
+Run it, don't read it, and don't write a checker of your own.
