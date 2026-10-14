@@ -77,6 +77,7 @@ review, with a thread per finding. Details are in the
 | [`reviewer/pipelinerun.yaml`](reviewer/pipelinerun.yaml) | The PipelineRun: task `review`, whose last step `report` posts the review |
 | [`reviewer/prompt.md`](reviewer/prompt.md) | The reviewer's instructions, with the `findings.json` schema |
 | [`reviewer/opencode.json`](reviewer/opencode.json) | opencode's configuration: the model, no sharing, every tool allowed but subagents |
+| [`reviewer/brief.py`](reviewer/brief.py) | Writes the model's first message: the prompt, then what every review reads first (the pull request, the house rules and the contract's headings, the repository's rules, the changed files), so its turns go to the review |
 | [`reviewer/state.py`](reviewer/state.py) | Writes `pr.json`: the pull request, its files, and the conversation, reviews and threads of people with write access only |
 | [`reviewer/findings.py`](reviewer/findings.py) | Checks `findings.json` against the diff and the earlier findings |
 | [`reviewer/report.py`](reviewer/report.py) | Posts the review as `arikkfir-reviewer`, through [`reviewer/github.py`](reviewer/github.py) |

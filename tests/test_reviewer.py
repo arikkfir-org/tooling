@@ -24,7 +24,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 REVIEWER_DIR = os.path.join(ROOT, "reviewer")
 sys.path.insert(0, REVIEWER_DIR)
 
-import findings  # noqa: E402  (imported from reviewer/, as the pipeline runs it)
+import brief  # noqa: E402  (imported from reviewer/, as the pipeline runs it)
+import findings  # noqa: E402
 import github  # noqa: E402
 import github_proxy  # noqa: E402
 import report  # noqa: E402
@@ -845,6 +846,107 @@ def go_json(value):
     return re.sub("[<>&\u2028\u2029]", lambda m: f"\\u{ord(m.group()):04x}", text).encode()
 
 
+class BriefTest(unittest.TestCase):
+    """brief.py: the review's first message, from a checkout the pull request controls."""
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.root)
+        self.checkout, self.docs = os.path.join(self.root, "infra"), os.path.join(self.root, "docs")
+        self.write(self.docs, "CONTRIBUTING.md", "# Contributing\n\nWrap errors.\n")
+        self.write(self.docs, "hub/reference.md", "# Hub reference\n\n## Network\n\n```sh\n# not a heading\n```\n\n"
+                                                  "## Octomaton\n")
+        self.write(self.checkout, "CLAUDE.md", "# infra\n\nApply with care.\n")
+        self.write(self.checkout, "README.md", "# infra readme\n")
+        self.write(self.checkout, "main.tf", 'resource "x" "y" {}\n')
+        self.write(self.checkout, "fence.md", "````\ninside four backticks\n````\n")
+        self.write(self.checkout, "big.tf", "x" * (brief.FILE_LIMIT + 1))
+        self.write(self.checkout, "logo.png", "\0PNG")
+        self.write(self.checkout, "pr.diff", "diff --git a/main.tf b/main.tf\n+resource\n")
+        self.write(self.checkout, "pr.log", "commit 0123456\n    Add the resource\n")
+        self.write(self.root, "outside.txt", "outside the checkout\n")
+        os.symlink(os.path.join(self.root, "outside.txt"), os.path.join(self.checkout, "link.tf"))
+        self.state = {
+            "repository": "arikkfir-org/infra", "number": 7, "revision": REVISION, "baseRef": "main",
+            "reviewer": REVIEWER,
+            "pr": {"title": "Add the resource", "body": "## Summary\nAdds it.", "user": {"login": "arikkfir"},
+                   "head": {"ref": "feature"}},
+            "files": [{"filename": name, "status": status, "commentable": {"RIGHT": [[1, 2]], "LEFT": []}}
+                      for name, status in (("main.tf", "added"), ("fence.md", "modified"), ("big.tf", "added"),
+                                           ("logo.png", "added"), ("link.tf", "added"), ("gone.tf", "removed"),
+                                           ("../escape.tf", "added"))],
+            "comments": [{"user": {"login": "arikkfir"}, "created_at": "2026-10-14T10:00:00Z", "body": "Ready."}],
+            "reviews": [{"id": 1, "user": {"login": REVIEWER}, "state": "CHANGES_REQUESTED", "commit_id": "abcdef0123",
+                         "submitted_at": "2026-10-14T10:05:00Z", "body": "One finding.", "threads": [
+                             {"code": "IAM-1", "isResolved": False, "isOutdated": False, "resolvedBy": None,
+                              "path": "main.tf", "line": 2, "startLine": 1, "diffSide": "RIGHT",
+                              "comments": [{"author": REVIEWER, "body": "Too broad.", "createdAt": "t1"},
+                                           {"author": "arikkfir", "body": "Narrowed.", "createdAt": "t2"}]}]}],
+            "codes": {"IAM-1": {"isResolved": False, "title": "Too broad"}},
+        }
+        self.write(self.checkout, "pr.json", json.dumps(self.state))
+
+    def write(self, root, path, text):
+        os.makedirs(os.path.dirname(os.path.join(root, path)), exist_ok=True)
+        with open(os.path.join(root, path), "w", encoding="utf-8") as f:
+            f.write(text)
+
+    def test_the_brief_holds_what_every_review_reads_first(self):
+        text = brief.compose("Review this pull request.\n", self.checkout, self.docs)
+        self.assertTrue(text.startswith("Review this pull request.\n"))
+        for part in ("## Add the resource", "#7 in `arikkfir-org/infra` by arikkfir, from `feature` into `main`",
+                     "> ## Summary\n> Adds it.", "> Ready.", f"### {REVIEWER}: CHANGES_REQUESTED on `abcdef0`",
+                     "- `IAM-1` on `main.tf` line 1-2 (RIGHT), open:", "  - **arikkfir** (t2):\n    > Narrowed.",
+                     "- `IAM-1` (open): Too broad", '- added `main.tf`: RIGHT [[1,2]], LEFT []',
+                     "Add the resource\n```", "```diff\ndiff --git a/main.tf b/main.tf\n+resource\n```",
+                     "Wrap errors.", "    3  ## Network\n    9  ## Octomaton", "Apply with care.", "# infra readme",
+                     '## main.tf\n\n```\nresource "x" "y" {}\n```', "`````\n````\ninside four backticks\n````\n`````"):
+            with self.subTest(part=part):
+                self.assertIn(part, text)
+        self.assertNotIn("not a heading\n```\n\nRead", text)
+        self.assertNotIn("    6  # not a heading", text)
+
+    def test_the_brief_leaves_out_what_it_must_not_read(self):
+        text = brief.compose("Prompt.\n", self.checkout, self.docs)
+        left = text[text.index("## Left out"):]
+        for line in ("- `big.tf` (48,001 bytes)", "- `logo.png` (binary)", "- `link.tf` (a link)",
+                     "- `../escape.tf` (outside the checkout)"):
+            with self.subTest(line=line):
+                self.assertIn(line, left)
+        self.assertNotIn("gone.tf", left)
+        self.assertNotIn("outside the checkout\n```", text)
+
+    def test_files_beyond_the_budget_are_listed(self):
+        with mock.patch.object(brief, "FILES_BUDGET", 30):
+            text = brief.compose("Prompt.\n", self.checkout, self.docs)
+        self.assertIn('## main.tf\n\n```\nresource "x" "y" {}\n```', text)
+        self.assertIn("- `fence.md` (over what the message has room for)", text)
+
+    def test_a_missing_rules_file_is_named(self):
+        os.remove(os.path.join(self.checkout, "README.md"))
+        text = brief.compose("Prompt.\n", self.checkout, self.docs)
+        self.assertIn("## `README.md`\n\nNot attached (missing): read it yourself if you need it.", text)
+
+    def test_a_failed_docs_clone_tells_the_model_to_clone_it(self):
+        # The prompt says docs is at /tmp/docs; when its clone failed, the brief says it isn't.
+        shutil.rmtree(self.docs)
+        text = brief.compose("Prompt.\n", self.checkout, self.docs)
+        self.assertIn(f"`docs` isn't at `{self.docs}`: its clone failed. Clone it there yourself when you need it: "
+                      f"`git clone --quiet http://127.0.0.1:8080/git/arikkfir-org/docs.git {self.docs}`.", text)
+        self.assertNotIn("its clone failed", brief.compose("Prompt.\n", self.checkout, self.checkout))
+
+    def test_a_link_on_the_way_is_refused(self):
+        os.symlink(self.docs, os.path.join(self.checkout, "linked"))
+        self.assertEqual(brief.read(self.checkout, "linked/CONTRIBUTING.md", 1000), (None, "a link"))
+
+    def test_runs_as_a_script(self):
+        prompt = os.path.join(self.root, "prompt.md")
+        self.write(self.root, "prompt.md", "Review this pull request.\n")
+        result = subprocess.run([sys.executable, os.path.join(REVIEWER_DIR, "brief.py"), "--prompt", prompt,
+                                 "--docs", self.docs], cwd=self.checkout, capture_output=True, check=True)
+        self.assertTrue(result.stdout.decode().startswith("Review this pull request.\n"))
+
+
 class PipelineRunTest(unittest.TestCase):
     def test_reports_results_fit_its_share_of_termination_messages(self):
         # Kubernetes splits 12 KiB of termination messages equally among a pod's containers: Tekton's 3 init
@@ -1479,32 +1581,67 @@ class ReviewPipelineRunTest(unittest.TestCase):
 
     TOKEN_PATHS = ("/workspace/github-token", "/var/run/github-token")  # the sidecar's mount, and clone's and state's
 
-    def run_model_step(self, step, mounted):
-        """Runs a model step as Tekton would: in the volume's root, with the checkout and .review/ in it and opencode
-        faked. Returns the result and opencode's arguments (None when it didn't run)."""
+    def run_model_step(self, step, mounted, name="infra", calls=None):
+        """Runs a model step as Tekton would: in the volume's root, with the checkout and .review/ in it, and opencode,
+        git and brief.py faked, /tmp under the test's directory. Returns the result and opencode's arguments (None when
+        it didn't run); calls, a dict, gets the git and brief.py command lines and opencode's input."""
         with tempfile.TemporaryDirectory() as root:
             if mounted:
                 os.makedirs(os.path.join(root, mounted.lstrip("/")))
-            work, bin_dir, config = (os.path.join(root, name) for name in ("infra", "bin", "config"))
+            work, bin_dir, config, tmp = (os.path.join(root, d) for d in (name, "bin", "config", "tmp"))
             os.makedirs(work)
+            os.makedirs(tmp)
             os.makedirs(os.path.join(root, ".review"))
-            for name in ("errors.txt", "prompt.md"):
-                with open(os.path.join(root, ".review", name), "w", encoding="utf-8") as f:
+            for file in ("errors.txt", "prompt.md"):
+                with open(os.path.join(root, ".review", file), "w", encoding="utf-8") as f:
                     f.write("text\n")
+            with open(os.path.join(root, ".review", "brief.py"), "w", encoding="utf-8") as f:
+                f.write('import sys\nopen(sys.argv[0] + ".args", "w").write(" ".join(sys.argv[1:]))\nprint("brief")\n')
             os.makedirs(bin_dir)
-            with open(os.path.join(bin_dir, "opencode"), "w", encoding="utf-8") as f:
-                f.write('#!/bin/sh\necho "$@" > "$RAN"\n')
-            os.chmod(os.path.join(bin_dir, "opencode"), 0o755)
+            fakes = {"opencode": 'echo "$@" > "$RAN"\ncat > "$RAN.stdin"\n',
+                     "git": 'echo "$@" >> "$RAN.git"\n[ -z "$GIT_FAILS" ]\n'}
+            for fake, body in fakes.items():
+                with open(os.path.join(bin_dir, fake), "w", encoding="utf-8") as f:
+                    f.write(f"#!/bin/sh\n{body}")
+                os.chmod(os.path.join(bin_dir, fake), 0o755)
             ran = os.path.join(root, "ran")
-            env = {"PATH": f"{bin_dir}:{os.environ['PATH']}", "XDG_CONFIG_HOME": config, "RAN": ran, "NAME": "infra"}
-            script = step_script(step)
+            env = {"PATH": f"{bin_dir}:{os.environ['PATH']}", "XDG_CONFIG_HOME": config, "RAN": ran, "NAME": name,
+                   "REPOSITORY": f"arikkfir-org/{name}", "GIT_FAILS": os.environ.get("GIT_FAILS", "")}
+            script = step_script(step).replace("/tmp/", tmp + "/")
             for path in self.TOKEN_PATHS:
                 script = script.replace(path, os.path.join(root, path.lstrip("/")))
             result = subprocess.run(["sh", "-c", script], cwd=root, env=env, input="", capture_output=True, text=True)
+            if calls is not None:
+                for key, path in (("git", ran + ".git"), ("brief", os.path.join(root, ".review", "brief.py.args")),
+                                  ("stdin", ran + ".stdin")):
+                    if os.path.exists(path):
+                        with open(path, encoding="utf-8") as f:
+                            calls[key] = f.read().replace(tmp, "/tmp")
             if not os.path.exists(ran):
                 return result, None
             with open(ran, encoding="utf-8") as f:
                 return result, f.read().split()
+
+    def test_the_model_starts_from_the_brief(self):
+        # docs is cloned through the sidecar where the model would clone it, unless the checkout is docs, and the
+        # model's first message is brief.py's output, the prompt with what every review reads first.
+        for name, docs, clones in (("infra", "/tmp/docs", "clone --quiet http://127.0.0.1:8080/git/arikkfir-org/"
+                                                          "docs.git /tmp/docs\n"), ("docs", ".", None)):
+            with self.subTest(name=name):
+                calls = {}
+                result, args = self.run_model_step("review", mounted=None, name=name, calls=calls)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(calls.get("git"), clones)
+                self.assertEqual(calls["brief"], f"--prompt ../.review/prompt.md --docs {docs}")
+                self.assertEqual(calls["stdin"], "brief\n")
+
+    def test_a_failed_docs_clone_leaves_the_review_running(self):
+        with mock.patch.dict(os.environ, {"GIT_FAILS": "1"}):
+            calls = {}
+            result, args = self.run_model_step("review", mounted=None, calls=calls)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Couldn't clone docs for the brief; the model will.", result.stderr)
+        self.assertEqual(calls["stdin"], "brief\n")
 
     def test_the_model_never_runs_where_the_token_is_mounted(self):
         for step in ("review", "fix"):

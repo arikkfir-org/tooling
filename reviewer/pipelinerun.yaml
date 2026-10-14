@@ -293,9 +293,21 @@ spec:
                 mkdir -p "${XDG_CONFIG_HOME}/opencode/node_modules"
                 echo '{"packages": {"": {"dependencies": {"@opencode-ai/plugin": "1.18.33"}}}}' \
                   > "${XDG_CONFIG_HOME}/opencode/package-lock.json"
+                # Every review reads the house rules first: docs is cloned for the model where it would clone it,
+                # through the github sidecar, unless the pull request is to docs and the checkout is docs. A failed
+                # clone only leaves the rules out of the brief, which says so, and the model clones docs itself.
+                docs=.
+                if [ "${REPOSITORY}" != arikkfir-org/docs ]; then
+                  docs=/tmp/docs
+                  git clone --quiet http://127.0.0.1:8080/git/arikkfir-org/docs.git /tmp/docs \
+                    || echo "Couldn't clone docs for the brief; the model will." >&2
+                fi
+                # The first message is the prompt and what every review reads first (brief.py): the pull request, the
+                # house rules, the repository's rules and the changed files, so the model's turns go to the review.
+                python3 ../.review/brief.py --prompt ../.review/prompt.md --docs "${docs}" > /tmp/brief.md
                 # Low reasoning effort: the review is many short turns of reading and searching. --thinking puts the
                 # reasoning in this step's log, the only record of it once the pod is gone.
-                opencode run --pure --variant low --format default --thinking < ../.review/prompt.md
+                opencode run --pure --variant low --format default --thinking < /tmp/brief.md
             - name: check
               image: me-west1-docker.pkg.dev/arikkfir/images/reviewer:main
               imagePullPolicy: Always
