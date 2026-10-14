@@ -1,0 +1,126 @@
+# Check Linear (https://docs.dev.kfirs.com/tooling/designs/linear-check.md). Octomaton runs it as organization pipeline
+# linear, check Linear, on every repository's pull requests and merge groups, reading this file at tooling's default
+# branch. It binds github-token, an installation token that reads the repository's pull requests, and step check reads
+# Linear's API key from Secret linear-api-key, which Octomaton lets only pipelines read at a default branch mount. The
+# check never fetches the pull request's code: check.py, from tooling's default branch, reads the pull request from
+# GitHub and its link from Linear, in a pod that reaches the internet and nothing else.
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  generateName: linear-
+  labels:
+    # Tekton copies it to the TaskRun's pod: NetworkPolicy sandbox limits it to the internet.
+    kfirs.com/sandbox: "true"
+spec:
+  # Octomaton sets every value; the empty ones satisfy Tekton's schema, which requires one.
+  params:
+    - name: repository
+      value: ""
+    - name: number
+      value: ""
+    - name: merge-group
+      value: ""
+  timeouts:
+    pipeline: 5m
+  taskRunTemplate:
+    podTemplate:
+      # Cluster DNS is inside the ranges the sandbox denies.
+      dnsPolicy: None
+      dnsConfig:
+        nameservers:
+          - 8.8.8.8
+          - 1.1.1.1
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+  # Reserved once for both steps (step-level requests would add up as if the steps ran at once): a shallow clone, then
+  # a few HTTPS requests from Python's standard library.
+  taskRunSpecs:
+    - pipelineTaskName: check
+      computeResources:
+        requests:
+          cpu: 50m
+          memory: 64Mi
+        limits:
+          memory: 256Mi
+  workspaces:
+    - name: work
+      emptyDir: {}
+  pipelineSpec:
+    params:
+      - name: repository
+        type: string
+      - name: number
+        type: string
+      - name: merge-group
+        type: string
+    workspaces:
+      - name: work
+      - name: github-token
+    results:
+      - name: check-title
+        value: $(tasks.check.results.check-title)
+      - name: check-summary
+        value: $(tasks.check.results.check-summary)
+    tasks:
+      - name: check
+        workspaces:
+          - name: work
+            workspace: work
+          - name: github-token
+            workspace: github-token
+        params:
+          - name: repository
+            value: $(params.repository)
+          - name: number
+            value: $(params.number)
+          - name: merge-group
+            value: $(params.merge-group)
+        taskSpec:
+          params:
+            - name: repository
+              type: string
+            - name: number
+              type: string
+            - name: merge-group
+              type: string
+          workspaces:
+            - name: work
+            - name: github-token
+          results:
+            - name: check-title
+              type: string
+            - name: check-summary
+              type: string
+          stepTemplate:
+            workingDir: $(workspaces.work.path)
+            env:
+              - name: REPOSITORY
+                value: $(params.repository)
+              - name: NUMBER
+                value: $(params.number)
+              - name: MERGE_GROUP
+                value: $(params.merge-group)
+          steps:
+            - name: clone
+              image: docker.io/alpine/git:2.54.0
+              script: |
+                #!/bin/sh
+                set -eu
+                # The check comes from tooling's default branch, never from the change under test.
+                git clone --quiet --depth=1 https://github.com/arikkfir-org/tooling.git tooling
+                mkdir .linear
+                git -C tooling archive HEAD:linear | tar -x -C .linear
+                rm -rf tooling
+            - name: check
+              image: gcr.io/google.com/cloudsdktool/google-cloud-cli:587.0.0-slim
+              env:
+                - name: LINEAR_API_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: linear-api-key
+                      key: api-key
+              script: |
+                #!/bin/sh
+                set -eu
+                exec python3 -s -E .linear/check.py --token-file "$(workspaces.github-token.path)/token" \
+                  --title-file "$(results.check-title.path)" --summary-file "$(results.check-summary.path)"
