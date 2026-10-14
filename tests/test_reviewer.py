@@ -1042,6 +1042,15 @@ class RoundTest(unittest.TestCase):
         self.assertIn("in these files: `a.txt`, `café.txt`.", text)
         self.assertIn("## café.txt", text[text.index("# The files changed since your last review"):])
 
+    def test_a_file_that_left_the_pull_request_is_in_the_round(self):
+        # Reviewed with café.txt, which the pull request then dropped: its removal is part of the round's change.
+        reviewed = self.commit({"café.txt": "c\n"}, "An accented name")
+        self.git("rm", "--quiet", "café.txt")
+        head = self.commit({"a.txt": "a\n" * 31}, "Drop it, add a line")
+        text = self.compose(self.state(head, [self.review(reviewed)], {"a.txt": 21, "b.txt": 2}))
+        self.assertIn("Since then it has changed by 2 of the 23 lines it changes, in these files: `a.txt`, `café.txt`.",
+                      text)
+
     def test_a_large_change_is_reviewed_whole(self):
         head = self.commit({"a.txt": "a\n" * 45}, "Fifteen more lines")
         text = self.compose(self.state(head, [self.review(self.reviewed)], {"a.txt": 23, "b.txt": 2}))

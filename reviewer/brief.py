@@ -200,8 +200,8 @@ def this_round(state, checkout, remote=None):
     paths = set()
     for file in state.get("files") or []:
         paths.update(name for name in (file.get("filename"), file.get("previous_filename")) if name)
-    before = git(checkout, "diff", "--name-only", f"origin/{state['baseRef']}...{since}")
-    paths.update(line for line in before.stdout.splitlines() if line)
+    before = git(checkout, "diff", "--name-only", "-z", f"origin/{state['baseRef']}...{since}")
+    paths.update(name for name in before.stdout.split("\0") if name)
     diff = git(checkout, "diff", since, revision, "--", *sorted(paths))
     names = git(checkout, "diff", "--name-only", "-z", since, revision, "--", *sorted(paths))
     counts = git(checkout, "diff", "--shortstat", since, revision, "--", *sorted(paths))
