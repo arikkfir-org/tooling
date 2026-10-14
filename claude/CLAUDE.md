@@ -44,3 +44,11 @@ Q: Why did the Docs check fail on this pull request?
   asked to look again is stranded.
 - A raw `curl` to `api.github.com` is the last resort: the session's proxy swaps in its own credentials, so the reply is
   authored by `claude[bot]`, not you. Say so when you use it.
+
+# Linear ticket links
+
+- Write every Linear issue ID (e.g. ENG-123) as a Markdown link: [ENG-123](https://linear.app/arikkfir/issue/ENG-123).
+  Every time, including in summaries, artifacts, lists and when describing commits.
+- Exception: git and GitHub metadata keep the bare key. Commit messages, the pull request description's magic-word line
+  and branch names use it as is (`Closes ENG-123`, `eng-123-short-slug`); commit subjects and pull request titles carry
+  no key.
