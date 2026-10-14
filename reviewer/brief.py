@@ -32,7 +32,8 @@ FILE_LIMIT = 48_000  # bytes of each changed file
 FILES_BUDGET = 200_000  # bytes of all the changed files together
 CHANGED = {"added", "modified", "renamed", "copied", "changed"}
 INCREMENTAL_MAX_LINES = 300  # changed lines since the last review, beyond which a round reviews everything again
-SUBMITTED = {"APPROVED", "CHANGES_REQUESTED", "COMMENTED"}
+# A push dismisses a stale approval, which still marks the commit the reviewer last reviewed.
+SUBMITTED = {"APPROVED", "CHANGES_REQUESTED", "COMMENTED", "DISMISSED"}
 
 
 def read(root, path, limit):

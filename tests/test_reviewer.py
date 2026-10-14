@@ -1018,6 +1018,16 @@ class RoundTest(unittest.TestCase):
         self.assertIn("## a.txt", changed)
         self.assertNotIn("## b.txt", changed)
 
+    def test_a_dismissed_approval_is_the_last_review(self):
+        # The hub dismisses an approval when the pull request moves on; the round still starts from what it approved.
+        approved = self.commit({"a.txt": "a\n" * 31}, "One more line")
+        head = self.commit({"a.txt": "a\n" * 32}, "Another")
+        text = self.compose(self.state(head, [self.review(self.reviewed),
+                                              self.review(approved, state="DISMISSED", at="2026-10-14T11:00:00Z")],
+                                       {"a.txt": 22, "b.txt": 2}))
+        self.assertIn(f"You last reviewed this pull request at `{approved[:7]}` (DISMISSED, 2026-10-14T11:00:00Z). "
+                      "Since then it has changed by 1 of the 24 lines it changes", text)
+
     def test_a_large_change_is_reviewed_whole(self):
         head = self.commit({"a.txt": "a\n" * 45}, "Fifteen more lines")
         text = self.compose(self.state(head, [self.review(self.reviewed)], {"a.txt": 23, "b.txt": 2}))
