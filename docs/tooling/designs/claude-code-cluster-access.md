@@ -32,11 +32,11 @@ flowchart LR
 
 ### Docs
 
-A page at `https://docs.dev.kfirs.com/X` is the object `.layers/<repository>/X` of the first layer that has it, in the site's overlay order: `docs` first, then the others alphabetically ([docs site composition](../../hub/designs/docs-site-composition.md)). Each repository publishes under its own name, so a path under `infra/` is infra's layer, and the rest, `hub/` included, is `docs`'s.
+A page at `https://docs.dev.kfirs.com/X` is the object `.layers/<repository>/X` of the first layer that has it, in the site's overlay order: `docs` first, then the others alphabetically ([docs site composition](../../hub/designs/docs-site-composition.md)). Each repository publishes under its own name, so a path under `infra/` is infra's layer, and the rest, `CONTRIBUTING.md` and `hub/` included, is `docs`'s.
 
 ```bash
 curl -fsS https://storage.googleapis.com/arikkfir-docs/.layers/infra/infra/designs/node-pools.md
-curl -fsS https://storage.googleapis.com/arikkfir-docs/.layers/docs/hub/reference.md
+curl -fsS https://storage.googleapis.com/arikkfir-docs/.layers/docs/CONTRIBUTING.md
 gcloud storage ls 'gs://arikkfir-docs/.layers/*/X'   # the layers that have path X
 ```
 

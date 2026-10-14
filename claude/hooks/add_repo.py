@@ -10,8 +10,8 @@ import json
 import sys
 
 ORGANIZATION = "arikkfir-org"
-# The organization's public repositories (hub/reference.md in arikkfir-org/docs). The internal fin, and any repository
-# added later, still ask.
+# The organization's public repositories, as arikkfir-org/infra declares them with their visibility
+# (terraform/github/repositories.tf). The internal fin, and any repository added later, still ask.
 REPOSITORIES = {".github", "delivery", "docs", "infra", "octomaton", "tooling"}
 # The remote-session server's tools, under the names it has in each kind of session. A tool of the same name from any
 # other server isn't trusted.
