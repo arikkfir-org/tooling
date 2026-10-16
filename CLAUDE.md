@@ -39,6 +39,10 @@ request reviewer (`reviewer/`), and the organization pipelines every repository 
 - Every reviewer step and the sidecar run in `me-west1-docker.pkg.dev/arikkfir/images/reviewer`, which
   `arikkfir-org/octomaton` builds (`images/reviewer`): one image for a node to pull. Run its `main` tag with
   `imagePullPolicy: Always`, the same in every step; add tools there, not here.
+- Large tasks run as Linear projects (https://docs.dev.kfirs.com/CONTRIBUTING.md, "Projects"): suggest one to your
+  person and create it once they agree; one issue per slice, however many pull requests it takes; slices preferably
+  self-contained and deployable on their own; keep the project's status current, with an update at each milestone or
+  significant change.
 
 ## Docs
 
