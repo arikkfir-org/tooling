@@ -88,9 +88,9 @@ Look for:
 - Missing tests, docs or design documents that the rules require.
 - A title or description that doesn't match the change, or leaves out risks and manual steps.
 
-Leave formatting and style to the linters, and the pull request's Linear issue (its key, its magic word, its branch
-name or the `skip-linear` label) to check `Linear`, which every pull request must pass to merge. Don't suggest
-refactors the change doesn't need.
+Leave formatting and style to the linters, and whether the pull request links a Linear issue or carries the
+`skip-linear` label to check `Linear`, which every pull request must pass to merge; the house rules' other Linear
+rules (which magic word, no issue key in the title) stay yours. Don't suggest refactors the change doesn't need.
 
 ## Findings
 
