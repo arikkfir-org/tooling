@@ -436,6 +436,8 @@ The results travel in the `report` container's termination message, as Go-encode
 - DeepSeek unreachable, a timeout, or a `findings.json` still invalid after `fix` fails the task and the check, and no review is posted. Re-run the check, or request the review again.
 - A lost node (the CI pool runs on Spot VMs, [node pools](../../infra/designs/node-pools.md)) or a failed `report` retries the task once, from `clone`. `report`'s GitHub calls retry on their own, so only an outage or a refusal (the head moved, which supersedes the run anyway) fails it there, and its run marker keeps a retry from posting a second review.
 - A new request for the same pull request supersedes the running review, and so do new commits while the review is still requested: the review starts again at the new head. A push after the review is posted starts nothing until the review is requested again.
+- The image's `main` tag moves with every merge that changes `reviewer/image/`, so a broken image breaks the next review in every repository. `reviewer-image-check` builds it on pull requests but runs no review. Revert to roll back: the revert publishes the old image as `main`. A failed publication leaves `main` where it was.
+- `reviewer-image`'s build step runs unconfined by seccomp and AppArmor, as a non-root user without privileges, and only from `main`. Its registry login is an hour-long access token of `ci-tooling-publish`, which can also write bucket `arikkfir-claude`; BuildKit uses it to push and never hands it to the Dockerfile's `RUN` steps.
 
 ## Credentials
 
