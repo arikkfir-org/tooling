@@ -137,11 +137,20 @@ sequenceDiagram
 | PipelineRun | `tooling`: `reviewer/pipelinerun.yaml`, read at its default branch for every repository | Task `review`: its sidecar and six steps, the volume, the ServiceAccount, the sandbox label, DNS and resources |
 | Scripts and prompt | `tooling`: `reviewer/` | `state.py` writes `pr.json`; `brief.py` writes the model's first message; `findings.py` checks `findings.json`; `report.py` posts the review through `github.py`; `github_proxy.py` serves GitHub in the sidecar; `prompt.md` and `opencode.json`. Standard-library Python, covered by `tests/test_reviewer.py` in `tooling`'s CI. Every step runs them from `tooling`'s default branch, and `report` and the sidecar from fresh clones of their own, never the volume's |
 | Image | `tooling`: `reviewer/image/`, published by `reviewer-image` (`.tekton/reviewer-image.yaml`) on a push to `main` that changes it, as `ci-tooling-publish`, which holds `roles/artifactregistry.writer` on the hub's `images` repository ([root gcp](../../infra/terraform/gcp.md#iam)); `reviewer-image-check` builds it for a pull request that changes it | `me-west1-docker.pkg.dev/arikkfir/images/reviewer`, tagged with the commit's short SHA and `main` ([the image](#the-image)). Built in `octomaton` until October 2026 ([host-agnostic Octomaton](../../octomaton/designs/host-agnostic.md)) |
-| Octomaton | `octomaton` | The `review_request` trigger, organization pipelines, `secrets`, `githubToken.repositories: all` and the refusal of remote Tekton references ([Octomaton's part](../../octomaton/designs/pr-reviewer.md)) |
+| Octomaton | `octomaton` | The `review_request` trigger, organization pipelines, `secrets`, `githubToken.repositories: all` and the refusal of remote Tekton references ([pull request reviewers](../../octomaton/designs/pr-reviewer.md)) |
 | Tenant objects | `delivery`: the `ci-tenants` base | ServiceAccount `reviewer`, NetworkPolicy `sandbox`, ExternalSecrets `reviewer-deepseek-api-key` and `reviewer-github-pat` in every `ci-<repository>` namespace |
 | Identity and secrets | `infra` | GitHub user `arikkfir-reviewer`, a member of `arikkfir-org`, in team `reviewers` (closed), which has `push` on every repository ([root github](../../infra/terraform/github.md)); Secret Manager `reviewer-deepseek-api-key` and `reviewer-github-pat` ([root gcp](../../infra/terraform/gcp.md#secret-manager)) |
 
-Octomaton knows nothing of the reviewer: it runs an organization pipeline on a review request, with the Secrets and the token scope the pipeline declares, as its [schema](https://github.com/arikkfir-org/octomaton#repository-configuration-octomatonyaml) allows. What Octomaton does for the reviewer, and why: [the reviewer in Octomaton](../../octomaton/designs/pr-reviewer.md).
+Octomaton knows nothing of the reviewer: it runs an organization pipeline on a review request, with the Secrets and the token scope the pipeline declares, as its [schema](https://github.com/arikkfir-org/octomaton#repository-configuration-octomatonyaml) allows. How it handles review requests, and why: [pull request reviewers](../../octomaton/designs/pr-reviewer.md). The reviewer uses those settings so:
+
+| Need | What `review` sets |
+| --- | --- |
+| A trigger for a review requested from `arikkfir-reviewer` | `on.review_request` with `reviewers: [arikkfir-reviewer]` |
+| One definition for every repository, which no pull request can change | An organization pipeline in this repository's `.octomaton.yaml` (the hub's organization repository, Octomaton's `OCTOMATON_ORGANIZATION_REPOSITORY`) and its `reviewer/pipelinerun.yaml`, both read at `tooling`'s default branch |
+| The model's key and `arikkfir-reviewer`'s token, which no other pipeline can mount | `secrets: [reviewer-deepseek-api-key, reviewer-github-pat]` |
+| A token that reads every repository, internal ones (`fin`) included | `githubToken.repositories: all`, with `contents: read` and `pull_requests: read` |
+| An image with the model's tools | Nothing from Octomaton: [the image](#the-image) is built here, by an ordinary pipeline |
+| A ServiceAccount any branch's run may use | `reviewer`, from `delivery`'s tenant base, with no `octomaton.dev/branches` annotation: it holds no role |
 
 ### The `review` task
 
