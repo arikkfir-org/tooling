@@ -6,7 +6,7 @@
 # to the model with the token, so the model clones any other repository it needs), and its last step, report, posts
 # them as one review by arikkfir-reviewer: one pod per review. Every step and the sidecar run in the reviewer image,
 # which has bash, git and python3 besides the model's tools, so a node pulls one image for a review. They run its main
-# tag, which octomaton's reviewer-image moves on every change, and pull it for every pod, so no node runs a main it
+# tag, which this repository's reviewer-image moves on every change, and pull it for every pod, so no node runs a main it
 # cached earlier.
 apiVersion: tekton.dev/v1
 kind: PipelineRun

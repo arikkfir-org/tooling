@@ -90,9 +90,10 @@ clones its own copy, in its own container. So no pull request, here or elsewhere
 takes effect once merged.
 
 Every step, the model's included, runs in the reviewer image, `me-west1-docker.pkg.dev/arikkfir/images/reviewer`
-(opencode and the tools the [design](docs/tooling/designs/pr-reviewer.md#opencode) lists), which
-`arikkfir-org/octomaton` builds from `images/reviewer` and publishes from its `main`. `reviewer/pipelinerun.yaml` runs
-its `main` tag and pulls it for every pod, so a change there reaches the next review. Octomaton mints the run's token for every repository of the organization, reading code and pull
+(opencode and the tools the [design](docs/tooling/designs/pr-reviewer.md#opencode) lists), built from
+[`reviewer/image`](reviewer/image) and published by `reviewer-image` ([`.tekton/reviewer-image.yaml`](.tekton/reviewer-image.yaml))
+on a push to `main` that changes it; `reviewer-image-check` builds it for a pull request that changes it.
+`reviewer/pipelinerun.yaml` runs its `main` tag and pulls it for every pod, so a change there reaches the next review. Octomaton mints the run's token for every repository of the organization, reading code and pull
 requests only. In `review`, only the `clone` step, which runs before the model and also writes `pr.json`, and the
 `github` sidecar mount it, so the model reads other repositories' code and pull requests (an internal one's too) through the sidecar,
 never with the token. `arikkfir-reviewer`'s token is in the `report` step's container alone, which starts its work once

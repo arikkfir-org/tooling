@@ -18,8 +18,10 @@ request reviewer (`reviewer/`), and the organization pipelines every repository 
 - `setup/setup.sh` must stay idempotent and fail-soft (warn and exit 0 unless `ARIKKFIR_CLAUDE_STRICT=1`). Keep the
   `@BUNDLE_SHA256@` placeholder; `scripts/build.sh` pins it.
 - Bundles are content-addressed and immutable. Upload bundles before `setup.sh`.
-- CI is Octomaton + Tekton (`.octomaton.yaml`, `.tekton/ci.yaml`, `.tekton/publish.yaml`), not GitHub Actions. Only
-  `publish` may name a ServiceAccount with Google Cloud roles (`ci-tooling-publish`, `main` only).
+- CI is Octomaton + Tekton (`.octomaton.yaml`, `.tekton/ci.yaml`, `.tekton/publish.yaml`,
+  `.tekton/reviewer-image.yaml`, `.tekton/reviewer-image-check.yaml`), not GitHub Actions. Only `publish` and
+  `reviewer-image`, which run on pushes to `main`, may name the ServiceAccount with Google Cloud roles
+  (`ci-tooling-publish`, `main` only).
 - This is the organization repository: `organization.pipelines` in `.octomaton.yaml` run in every repository, read from
   `main`. A change there applies org-wide; say so in the pull request.
 - `reviewer/`: Octomaton runs `reviewer/pipelinerun.yaml` from the default branch for every repository. Its Python is
@@ -40,9 +42,10 @@ request reviewer (`reviewer/`), and the organization pipelines every repository 
   token workspace Octomaton binds. Never add another. The token reads every repository: only the `clone` step (which
   also writes `pr.json`) and the `github` sidecar of `review` mount it (an isolated workspace), never a step that runs
   the model.
-- Every reviewer step and the sidecar run in `me-west1-docker.pkg.dev/arikkfir/images/reviewer`, which
-  `arikkfir-org/octomaton` builds (`images/reviewer`): one image for a node to pull. Run its `main` tag with
-  `imagePullPolicy: Always`, the same in every step; add tools there, not here.
+- Every reviewer step and the sidecar run in `me-west1-docker.pkg.dev/arikkfir/images/reviewer`, built from
+  `reviewer/image/` and published by `reviewer-image` on a push to `main` that changes it: one image for a node to
+  pull. Run its `main` tag with `imagePullPolicy: Always`, the same in every step; add tools to the image, not to
+  the PipelineRun. Pin its base image by digest. A merge that changes it reaches the next review.
 - Large tasks run as Linear projects (https://docs.dev.kfirs.com/CONTRIBUTING.md, "Projects"): suggest one to your
   person and create it once they agree; one issue per slice, however many pull requests it takes; slices preferably
   self-contained and deployable on their own; keep the project's status current, with an update at each milestone or

@@ -22,6 +22,34 @@ pipelines:
     concurrency:
       group: publish
       policy: latest
+  # Publish the pull request reviewer's image (reviewer/image, run by reviewer/pipelinerun.yaml) from main, tagged with
+  # the commit's short SHA and "main", whenever it changes. The reviewer runs the "main" tag, which each publication
+  # moves, so a merge that changes the image reaches the next review.
+  - name: reviewer-image
+    pipelineRun: .tekton/reviewer-image.yaml
+    on:
+      push:
+        branches: [main]
+        paths: [reviewer/image/**, .tekton/reviewer-image.yaml]
+    params:
+      repo-url: "{{ .Repository.CloneURL }}"
+      revision: "{{ .Revision }}"
+    timeout: 30m
+    # Pushes to main publish the "main" tag: only the newest waiting publication may run.
+    concurrency:
+      group: reviewer-image
+      policy: latest
+  # Build the reviewer's image for pull requests that change it, without pushing it.
+  - name: reviewer-image-check
+    displayName: Reviewer Image
+    pipelineRun: .tekton/reviewer-image-check.yaml
+    on:
+      pull_request:
+        paths: [reviewer/image/**, .tekton/reviewer-image-check.yaml]
+    params:
+      repo-url: "{{ .Repository.CloneURL }}"
+      revision: "{{ .Revision }}"
+    timeout: 30m
 # This is the hub's organization repository (Octomaton's OCTOMATON_ORGANIZATION_REPOSITORY): every repository of
 # arikkfir-org runs these pipelines, read from this file at main, and none can replace them.
 organization:
