@@ -147,7 +147,7 @@ Octomaton knows nothing of the reviewer: it runs an organization pipeline on a r
 | --- | --- |
 | A trigger for a review requested from `arikkfir-reviewer` | `on.review_request` with `reviewers: [arikkfir-reviewer]` |
 | One definition for every repository, which no pull request can change | An organization pipeline in this repository's `.octomaton.yaml` (the hub's organization repository, Octomaton's `OCTOMATON_ORGANIZATION_REPOSITORY`) and its `reviewer/pipelinerun.yaml`, both read at `tooling`'s default branch |
-| The model's key and `arikkfir-reviewer`'s token, which no other pipeline can mount | `secrets: [reviewer-deepseek-api-key, reviewer-github-pat]` |
+| The model's key and `arikkfir-reviewer`'s token, which no pull request can reach | `secrets: [reviewer-deepseek-api-key, reviewer-github-pat]`. Only a pipeline read at a default branch may list them, so no pull request can change what mounts them; another repository's own default-branch pipeline could, since every tenant holds them |
 | A token that reads every repository, internal ones (`fin`) included | `githubToken.repositories: all`, with `contents: read` and `pull_requests: read` |
 | An image with the model's tools | Nothing from Octomaton: [the image](#the-image) is built here, by an ordinary pipeline |
 | A ServiceAccount any branch's run may use | `reviewer`, from `delivery`'s tenant base, with no `octomaton.dev/branches` annotation: it holds no role |
