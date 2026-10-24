@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Installs the arikkfir Claude Code bundle (user-level CLAUDE.md, settings and hooks) into ~/.claude.
+# Installs the arikkfir Claude Code bundle (user-level CLAUDE.md, settings, hooks and skills) into ~/.claude.
 #
 # Use it as the setup script of a Claude Code on the web environment:
 #   curl -fsSL https://storage.googleapis.com/arikkfir-claude/setup.sh | bash
@@ -44,6 +44,30 @@ mkdir -p "${hooks}.new"
 install -m 0755 "${src}"/hooks/* "${hooks}.new/"
 if [[ -e "${hooks}" ]]; then mv "${hooks}" "${hooks}.old"; fi
 mv "${hooks}.new" "${hooks}"
+
+# Skills: each directory of the bundle's skills/ replaces skills/<name> as a whole, staged and swapped like the hooks,
+# and the names installed are recorded so that a skill dropped from the bundle is removed by the next install.
+skills="${config_dir}/skills"
+mkdir -p "${skills}"
+installed_skills="${hooks}/.skills"
+: > "${installed_skills}"
+if [[ -d "${src}/skills" ]]; then
+  for skill in "${src}"/skills/*/; do
+    name="$(basename "${skill}")"
+    rm -rf "${skills}/${name}.new" "${skills}/${name}.old"
+    mkdir -p "${skills}/${name}.new"
+    install -m 0644 "${skill}"* "${skills}/${name}.new/"
+    if [[ -e "${skills}/${name}" ]]; then mv "${skills}/${name}" "${skills}/${name}.old"; fi
+    mv "${skills}/${name}.new" "${skills}/${name}"
+    rm -rf "${skills}/${name}.old"
+    echo "${name}" >> "${installed_skills}"
+  done
+fi
+if [[ -f "${hooks}.old/.skills" ]]; then
+  while IFS= read -r name; do
+    if [[ -n "${name}" ]] && ! grep -qxF "${name}" "${installed_skills}"; then rm -rf "${skills:?}/${name}"; fi
+  done < "${hooks}.old/.skills"
+fi
 rm -rf "${hooks}.old"
 
 # Merge into existing settings (bundle values win), atomically.

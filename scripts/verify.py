@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Verifies dist/ before publication.
 
-The bundle is public, so it may only contain the expected kinds of files, and its settings may not carry keys that
-exist to hold credentials. Secret scanning (gitleaks) runs separately over the extracted content.
+The bundle is public, so it may only contain the expected kinds of files (the user-level files, hooks, and skills
+of Markdown and Python), and its settings may not carry keys that exist to hold credentials. Secret scanning (gitleaks) runs separately over the extracted content.
 
 Usage: verify.py [EXTRACT_DIR]   extracts the bundle into EXTRACT_DIR (default dist/content) for further scanning
 """
@@ -17,8 +17,9 @@ import tarfile
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DIST = os.path.join(ROOT, "dist")
 MAX_BYTES = 256 * 1024
-ALLOWED_FILES = ["claude/CLAUDE.md", "claude/settings.json", "claude/mcp.json", "claude/hooks/*.py"]
-ALLOWED_DIRS = {"claude", "claude/hooks"}
+ALLOWED_FILES = ["claude/CLAUDE.md", "claude/settings.json", "claude/mcp.json", "claude/hooks/*.py",
+                 "claude/skills/*/SKILL.md", "claude/skills/*/*.md", "claude/skills/*/*.py"]
+ALLOWED_DIRS = ["claude", "claude/hooks", "claude/skills", "claude/skills/*"]
 FORBIDDEN_SETTINGS = {"env", "apiKeyHelper", "awsAuthRefresh", "awsCredentialExport", "otelHeadersHelper"}
 # An MCP server's credentials: request headers, a command printing them, a stdio server's environment, an OAuth client.
 FORBIDDEN_MCP = {"headers", "headersHelper", "env", "oauth"}
@@ -56,7 +57,7 @@ def main():
     with tarfile.open(path) as archive:
         for member in archive.getmembers():
             name = member.name.rstrip("/")
-            if member.isdir() and name in ALLOWED_DIRS:
+            if member.isdir() and any(fnmatch.fnmatchcase(name, pattern) for pattern in ALLOWED_DIRS):
                 continue
             if member.isfile() and any(fnmatch.fnmatchcase(name, pattern) for pattern in ALLOWED_FILES):
                 continue
