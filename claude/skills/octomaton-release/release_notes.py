@@ -174,7 +174,7 @@ def main():
     parser.add_argument("--target", default="main", help="the branch or commit to release (default main)")
     parser.add_argument("--since", help="the previous version's tag (default: the newest vX.Y.Z tag)")
     parser.add_argument("--version", help="the version to release, X.Y.Z (default: computed from the changes)")
-    parser.add_argument("--out", help="write the notes here (default: stdout)")
+    parser.add_argument("--out", help="write the notes here (default: stdout, or stderr with --json)")
     parser.add_argument("--json", action="store_true", help="print the version, tag, target and pull requests as JSON")
     args = parser.parse_args()
 
@@ -207,6 +207,9 @@ def main():
     if args.out:
         with open(args.out, "w", encoding="utf-8") as f:
             f.write(notes)
+    elif args.json:
+        # stdout carries the JSON alone, so a caller can parse it; the notes go to stderr.
+        print(notes, end="", file=sys.stderr)
     else:
         print(notes, end="")
     summary = {"version": version, "tag": f"v{version}", "previous": previous_tag, "target": commits[-1]["sha"],

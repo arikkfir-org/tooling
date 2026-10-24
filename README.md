@@ -21,6 +21,7 @@ A user-level configuration installed into `~/.claude` of every Claude Code on th
 | [`claude/hooks/pull_request.py`](claude/hooks/pull_request.py) | `PostToolUse` (`create_pull_request`): after opening an `arikkfir-org` pull request, reminds the session to request `arikkfir-reviewer` and to link the Linear issue and design |
 | [`claude/hooks/dockerd.py`](claude/hooks/dockerd.py) | `SessionStart`: in cloud sessions, starts the Docker daemon in the background, pulling from Docker Hub through `mirror.gcr.io` |
 | [`claude/hooks/bundle.py`](claude/hooks/bundle.py) | `SessionStart` (async): in cloud sessions, installs the published bundle when it isn't the one installed, so sessions started from a cached environment or resumed after idling catch up |
+| [`claude/skills/octomaton-release/`](claude/skills/octomaton-release) | Skill `octomaton-release`: drafts a GitHub release of `arikkfir-org/octomaton` (tag `v<version>`, title `<version>`) with notes `release_notes.py` generates from the pull requests merged since the previous version; a person publishes it ([design](docs/tooling/designs/octomaton-release.md)) |
 
 ### Using it
 
@@ -32,7 +33,7 @@ curl -fsSL https://storage.googleapis.com/arikkfir-claude/setup.sh | bash
 
 `setup.sh` downloads the bundle it is pinned to, verifies its SHA-256, and installs it into
 `${CLAUDE_CONFIG_DIR:-~/.claude}`: `CLAUDE.md` is replaced, hooks live in `hooks/arikkfir/` (replaced as a whole),
-`settings.json` is merged with any existing settings (bundle values win), and `mcp.json`'s servers join Claude Code's
+each skill in `skills/<name>/` (replaced as a whole, and removed once the bundle drops it), `settings.json` is merged with any existing settings (bundle values win), and `mcp.json`'s servers join Claude Code's
 global config (`.claude.json`), replacing servers of the same name. Running it again changes nothing. If anything fails
 it warns and exits 0, so a broken download never blocks a session; set `ARIKKFIR_CLAUDE_STRICT=1` to fail instead.
 
@@ -60,7 +61,8 @@ Uploads use `gcloud storage rsync --checksums-only`, so unchanged objects are no
 The bundle is public. What guards it:
 
 1. `scripts/build.sh` archives committed files under `claude/` only (`git archive`), so untracked files never ship.
-2. `scripts/verify.py` allows only `CLAUDE.md`, `settings.json`, `mcp.json` and `hooks/*.py`, caps the size at 256 KiB,
+2. `scripts/verify.py` allows only `CLAUDE.md`, `settings.json`, `mcp.json`, `hooks/*.py` and, per skill,
+   `skills/<name>/SKILL.md` with `.md` and `.py` files beside it, caps the size at 256 KiB,
    and rejects settings keys that exist to carry credentials (`env`, `apiKeyHelper`, …) and MCP servers' credentials
    (`headers`, `headersHelper`, `env`, `oauth`).
 3. gitleaks scans the extracted bundle and the repository; any finding fails the pipeline.

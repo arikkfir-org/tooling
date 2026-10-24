@@ -9,7 +9,7 @@ A release is a GitHub release of `arikkfir-org/octomaton`: tag `v<version>` on a
 notes generated from the pull requests merged since the previous version. The skill drafts it; a person publishes it.
 Publishing creates the tag, and the tag runs Octomaton's `release` pipeline, which publishes the images
 `me-west1-docker.pkg.dev/arikkfir/octomaton/octomaton:v<version>` and `…/octomaton-logs:v<version>`. A draft has
-no tag, so nothing is built until it is published. Design: https://docs.dev.kfirs.com/octomaton/designs/releases.md.
+no tag, so nothing is built until it is published. Design: https://github.com/arikkfir-org/octomaton/blob/main/docs/octomaton/designs/releases.md.
 
 ## Steps
 

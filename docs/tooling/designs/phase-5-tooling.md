@@ -9,13 +9,13 @@
 ```mermaid
 flowchart LR
   subgraph repo[arikkfir-org/tooling]
-    C[claude/<br/>CLAUDE.md, settings.json,<br/>mcp.json, hooks/*.py]
+    C[claude/<br/>CLAUDE.md, settings.json,<br/>mcp.json, hooks/*.py, skills/]
     S[setup/setup.sh]
   end
   repo -- push to main --> SB[Octomaton] --> TK[Tekton publish<br/>build, verify,<br/>gitleaks, upload]
   TK --> B[(gs://arikkfir-claude<br/>bundles/&lt;sha256&gt;.tar.gz<br/>setup.sh)]
   E[Claude Code on the web<br/>environment setup script] -- "curl …/setup.sh | bash" --> B
-  E --> H["~/.claude<br/>CLAUDE.md, settings.json,<br/>hooks/arikkfir/"]
+  E --> H["~/.claude<br/>CLAUDE.md, settings.json,<br/>hooks/arikkfir/, skills/"]
 ```
 
 ## Bundle
@@ -33,6 +33,7 @@ flowchart LR
 | `hooks/git_hooks.py` (`SessionStart`; `PostToolUse`, `register_repo_root`) | In cloud sessions, points each `arikkfir-org` repository that commits hooks in `.githooks/` at them (`core.hooksPath`); any other repository's hooks stay off, as git leaves them |
 | `hooks/dockerd.py` (`SessionStart`) | In cloud sessions, starts the Docker daemon in the background, pulling from Docker Hub through `mirror.gcr.io` |
 | `hooks/bundle.py` (`SessionStart`, async) | In cloud sessions, runs the published `setup.sh` in the background when it is pinned to a bundle other than the installed one (`hooks/arikkfir/.bundle`), so sessions started from a cached environment or resumed after idling catch up |
+| `skills/octomaton-release/` | Skill `octomaton-release`: drafts a GitHub release of Octomaton, its version and notes generated from the merged pull requests' Conventional Commits ([design](octomaton-release.md)) |
 
 Hooks are stdlib-only Python, fail open (a bug never blocks the session) and are covered by tests.
 
@@ -41,6 +42,8 @@ Hooks are stdlib-only Python, fail open (a bug never blocks the session) and are
 `bundle.py` comes with arikkfir-org/tooling#21.
 
 `rm -r` stops asking with arikkfir-org/tooling#31.
+
+Skills, and `octomaton-release`, come with arikkfir-org/tooling#53.
 
 ## Installation in a session
 
@@ -54,7 +57,8 @@ Claude Code in cloud sessions is started with the launcher's settings file and a
 user-level files written into `~/.claude` are loaded like on a workstation.
 
 `setup.sh` is pinned at build time to one content-addressed bundle. It downloads it, checks the SHA-256, installs
-`CLAUDE.md`, replaces `hooks/arikkfir/` as a whole, merges `settings.json` into any existing settings (bundle values
+`CLAUDE.md`, replaces `hooks/arikkfir/` as a whole and each skill's `skills/<name>/` as a whole (recording their names in
+`hooks/arikkfir/.skills`, so a skill the bundle drops is removed), merges `settings.json` into any existing settings (bundle values
 win), adds `mcp.json`'s servers to Claude Code's global config (`.claude.json`), replacing servers of the same name,
 and records the bundle it installed in `hooks/arikkfir/.bundle`. Running it twice changes nothing. On any failure
 it warns and exits 0, because a failed setup script would stop the session from starting; `ARIKKFIR_CLAUDE_STRICT=1`
@@ -85,7 +89,7 @@ Bundles are immutable (`Cache-Control: immutable`); `setup.sh` is `no-cache`. Bo
 | Guard | Stops |
 | --- | --- |
 | `git archive` of committed `claude/` only | Untracked or ignored local files |
-| `verify.py` allowlist (`CLAUDE.md`, `settings.json`, `mcp.json`, `hooks/*.py`), 256 KiB cap | Unexpected files, binaries, archives |
+| `verify.py` allowlist (`CLAUDE.md`, `settings.json`, `mcp.json`, `hooks/*.py`, `skills/<name>/SKILL.md` with `.md` and `.py` beside it), 256 KiB cap | Unexpected files, binaries, archives |
 | `verify.py` rejects `env`, `apiKeyHelper` and other credential-bearing settings keys, and MCP servers' `headers`, `headersHelper`, `env` and `oauth` | Credentials configured through settings or MCP servers |
 | gitleaks over the extracted bundle and the repository | Tokens and keys in allowed files |
 
@@ -112,3 +116,4 @@ Bucket `arikkfir-claude` and its grants are `infra`'s ([root gcp, Buckets](../..
 | `add_repo.py` keyed to the remote-session server's exact tool names and the organization's public repositories | It grants permission: a same-named tool from another server, `fin`, or another organization's repository keeps the normal prompt. The hooks that only remind or configure match the tool from any server | A broad `mcp__.*__add_repo` matcher, or every `arikkfir-org` repository |
 | Work-losing git commands also asked about by `guard.py` | A glob can't tell `git switch -qf` from `git switch -c feature`, and a rule ending in `:*` is a trailing wildcard, not a literal colon; `guard.py` parses the command, clusters and `:branch` refspecs included. The ask rules stay for when the hook fails open | Ask rules alone |
 | `dockerd` started without waiting for it | Session start stays as fast as before; the first `docker` command waits instead | Waiting for the daemon in the hook |
+| Skills shipped in the bundle, one directory each | A procedure every session may be asked to run (releasing Octomaton) lives in one place, updated with the bundle; a skill's files are allowlisted like the hooks, so the public bundle stays free of secrets | A skill committed in `octomaton`, which a session would have to attach first; a slash command |

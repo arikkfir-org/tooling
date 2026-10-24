@@ -7,8 +7,9 @@ request reviewer (`reviewer/`), and the organization pipelines every repository 
 ## Rules
 
 - `claude/` is published to a public bucket. Never put secrets, tokens, internal hostnames or personal data in it.
-  Allowed files: `claude/CLAUDE.md`, `claude/settings.json`, `claude/mcp.json`, `claude/hooks/*.py`. Anything else needs
-  a matching change to `scripts/verify.py`.
+  Allowed files: `claude/CLAUDE.md`, `claude/settings.json`, `claude/mcp.json`, `claude/hooks/*.py` and, per skill,
+  `claude/skills/<name>/SKILL.md` with `.md` and `.py` files beside it. Anything else needs a matching change to
+  `scripts/verify.py`. Skills are stdlib-only Python too, and link only public pages (GitHub, never the docs site).
 - Hooks must never break a session: catch everything, fail open, stay fast (< 1 s typical), stdlib-only Python 3.
 - `claude/CLAUDE.md` is the user's personal response style. Change its substance only when asked.
 - No attribution in anything you write (https://docs.dev.kfirs.com/CONTRIBUTING.md, "Coding agents"): no
@@ -55,7 +56,8 @@ request reviewer (`reviewer/`), and the organization pipelines every repository 
 
 - This repository's designs are in `docs/tooling/designs/`: the reviewer's (`pr-reviewer.md`), the Claude Code
   bundle's (`phase-5-tooling.md`), its sessions' access to the cluster and the docs
-  (`claude-code-cluster-access.md`) and check Linear's (`linear-check.md`). A change keeps those it touches true, in the
+  (`claude-code-cluster-access.md`), check Linear's (`linear-check.md`) and the Octomaton release skill's
+  (`octomaton-release.md`). A change keeps those it touches true, in the
   same pull request.
 - Pages at `https://docs.dev.kfirs.com/<path>` (every repository's `docs/`) are behind the hub's sign-in. Read one with
   `curl -fsS https://storage.googleapis.com/arikkfir-docs/.layers/<repository>/<path>`, where `<repository>` is the
