@@ -21,7 +21,6 @@ A user-level configuration installed into `~/.claude` of every Claude Code on th
 | [`claude/hooks/pull_request.py`](claude/hooks/pull_request.py) | `PostToolUse` (`create_pull_request`): after opening an `arikkfir-org` pull request, reminds the session to request `arikkfir-reviewer` and to link the Linear issue and design |
 | [`claude/hooks/dockerd.py`](claude/hooks/dockerd.py) | `SessionStart`: in cloud sessions, starts the Docker daemon in the background, pulling from Docker Hub through `mirror.gcr.io` |
 | [`claude/hooks/bundle.py`](claude/hooks/bundle.py) | `SessionStart` (async): in cloud sessions, installs the published bundle when it isn't the one installed, so sessions started from a cached environment or resumed after idling catch up |
-| [`claude/skills/octomaton-release/`](claude/skills/octomaton-release) | Skill `octomaton-release`: drafts a GitHub release of `arikkfir-org/octomaton` (tag `v<version>`, title `<version>`) with notes `release_notes.py` generates from the pull requests merged since the previous version; a person publishes it ([design](docs/tooling/designs/octomaton-release.md)) |
 
 ### Using it
 

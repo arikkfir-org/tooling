@@ -33,7 +33,6 @@ flowchart LR
 | `hooks/git_hooks.py` (`SessionStart`; `PostToolUse`, `register_repo_root`) | In cloud sessions, points each `arikkfir-org` repository that commits hooks in `.githooks/` at them (`core.hooksPath`); any other repository's hooks stay off, as git leaves them |
 | `hooks/dockerd.py` (`SessionStart`) | In cloud sessions, starts the Docker daemon in the background, pulling from Docker Hub through `mirror.gcr.io` |
 | `hooks/bundle.py` (`SessionStart`, async) | In cloud sessions, runs the published `setup.sh` in the background when it is pinned to a bundle other than the installed one (`hooks/arikkfir/.bundle`), so sessions started from a cached environment or resumed after idling catch up |
-| `skills/octomaton-release/` | Skill `octomaton-release`: drafts a GitHub release of Octomaton, its version and notes generated from the merged pull requests' Conventional Commits ([design](octomaton-release.md)) |
 
 Hooks are stdlib-only Python, fail open (a bug never blocks the session) and are covered by tests.
 
@@ -43,7 +42,7 @@ Hooks are stdlib-only Python, fail open (a bug never blocks the session) and are
 
 `rm -r` stops asking with arikkfir-org/tooling#31.
 
-Skills, and `octomaton-release`, come with arikkfir-org/tooling#53.
+Skills (`claude/skills/<name>/`, installed to `~/.claude/skills/<name>/`) come with arikkfir-org/tooling#53, with `octomaton-release`, the first; that skill went away in the next pull request, since a Claude Code session may not create GitHub releases, and Octomaton's release notes are GitHub's generated ones. The bundle ships no skill at present.
 
 ## Installation in a session
 
@@ -116,4 +115,4 @@ Bucket `arikkfir-claude` and its grants are `infra`'s ([root gcp, Buckets](../..
 | `add_repo.py` keyed to the remote-session server's exact tool names and the organization's public repositories | It grants permission: a same-named tool from another server, `fin`, or another organization's repository keeps the normal prompt. The hooks that only remind or configure match the tool from any server | A broad `mcp__.*__add_repo` matcher, or every `arikkfir-org` repository |
 | Work-losing git commands also asked about by `guard.py` | A glob can't tell `git switch -qf` from `git switch -c feature`, and a rule ending in `:*` is a trailing wildcard, not a literal colon; `guard.py` parses the command, clusters and `:branch` refspecs included. The ask rules stay for when the hook fails open | Ask rules alone |
 | `dockerd` started without waiting for it | Session start stays as fast as before; the first `docker` command waits instead | Waiting for the daemon in the hook |
-| Skills shipped in the bundle, one directory each | A procedure every session may be asked to run (releasing Octomaton) lives in one place, updated with the bundle; a skill's files are allowlisted like the hooks, so the public bundle stays free of secrets | A skill committed in `octomaton`, which a session would have to attach first; a slash command |
+| Skills shipped in the bundle, one directory each | A procedure every session may be asked to run lives in one place, updated with the bundle; a skill's files are allowlisted like the hooks, so the public bundle stays free of secrets | A skill committed in `octomaton`, which a session would have to attach first; a slash command |
