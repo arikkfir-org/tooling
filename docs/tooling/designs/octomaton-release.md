@@ -90,7 +90,7 @@ session drives them, and a session needs no clone of `octomaton` to release it.
 
 ## Rollout
 
-1. octomaton#50 (the tag-triggered build and the releases design), delivery#81 (the identity's `octomaton.dev/tags`).
+1. octomaton#50 (pipeline `tag`, which retags a version, and the releases design), delivery#81 (the identity's `octomaton.dev/tags`).
 2. This pull request: the skill, the bundle's support for skills, this page. Live once merged and a session installs
    the new bundle.
 3. The person drafts and publishes the first version, `1.0.0`, with the skill.
