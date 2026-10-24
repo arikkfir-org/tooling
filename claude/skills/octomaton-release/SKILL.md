@@ -7,9 +7,9 @@ description: Draft a new Octomaton release (arikkfir-org/octomaton) as a GitHub 
 
 A release is a GitHub release of `arikkfir-org/octomaton`: tag `v<version>` on a commit of `main`, title `<version>`,
 notes generated from the pull requests merged since the previous version. The skill drafts it; a person publishes it.
-Publishing creates the tag, and the tag runs Octomaton's `release` pipeline, which publishes the images
-`me-west1-docker.pkg.dev/arikkfir/octomaton/octomaton:v<version>` and `…/octomaton-logs:v<version>`. A draft has
-no tag, so nothing is built until it is published. Design: https://github.com/arikkfir-org/octomaton/blob/main/docs/octomaton/designs/releases.md.
+Publishing creates the tag, and the tag runs Octomaton's `tag` pipeline, which adds the version to the commit's
+images, `me-west1-docker.pkg.dev/arikkfir/octomaton/octomaton:v<version>` and `…/octomaton-logs:v<version>`, without
+rebuilding them. A draft has no tag, so nothing happens until it is published. Design: https://github.com/arikkfir-org/octomaton/blob/main/docs/octomaton/designs/releases.md.
 
 ## Steps
 
@@ -43,13 +43,13 @@ no tag, so nothing is built until it is published. Design: https://github.com/ar
    `curl`: the session's proxy would author it as `claude[bot]`.
 
 4. **Tell the person what publishing does**, with the draft's URL: publishing creates tag `v<version>` on the target
-   commit, Octomaton's `release` pipeline (check `release` on that commit) builds and publishes the two images tagged
-   `v<version>`, and nothing changes for hosts that follow `main`. The build refuses a commit that is not on `main`.
+   commit, Octomaton's `tag` pipeline (check `tag` on that commit) tags the commit's two images `v<version>`, and
+   nothing changes for hosts that follow `main`. It refuses a commit that is not on `main`.
    Do not publish the release yourself.
 
 ## Rules
 
-- Draft only. Publishing is the person's step: it builds images and cannot be undone (a deleted tag can be
+- Draft only. Publishing is the person's step: it tags images and cannot be undone (a deleted tag can be
   recreated, but the images keep the tag).
 - The tag is `v<version>`, the title `<version>`, the notes are the generated file: don't rename, don't add
   attribution, don't write release notes by hand when the script can generate them.

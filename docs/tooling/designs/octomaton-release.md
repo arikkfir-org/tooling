@@ -15,7 +15,7 @@ sequenceDiagram
   participant R as release_notes.py
   participant GH as GitHub
   participant O as Octomaton
-  participant T as Tekton: release
+  participant T as Tekton: tag
   participant AR as Artifact Registry
   P->>S: release Octomaton
   S->>R: --out notes.md --json
@@ -26,9 +26,9 @@ sequenceDiagram
   Note over GH: a draft has no tag: nothing runs
   P->>GH: publishes the release
   GH->>O: push refs/tags/v1.2.3
-  O->>T: release, read at main, for the tagged commit
+  O->>T: tag, read at main, for the tagged commit
   T->>T: the commit is on main, or fail
-  T->>AR: octomaton:v1.2.3, octomaton-logs:v1.2.3
+  T->>AR: add v1.2.3 to the commit's octomaton and octomaton-logs images
 ```
 
 ## Where it lives
@@ -63,7 +63,7 @@ stays parseable.
 
 ## Why a draft, and why a skill
 
-Publishing a release creates the tag, and the tag runs Octomaton's `release` pipeline, which publishes the images
+Publishing a release creates the tag, and the tag runs Octomaton's `tag` pipeline, which tags the commit's images
 `v<version>`: a step that cannot be undone, so it stays the person's. A draft release has no tag and no effect, which
 is also what makes the skill safe to try. The skill lives in the bundle rather than in `octomaton` because releasing
 is a session procedure, not part of the product: `octomaton` keeps the pipeline and the design, `tooling` keeps how a
@@ -76,7 +76,7 @@ session drives them, and a session needs no clone of `octomaton` to release it.
 - A pull request's commits carry no conventional subject: it lands under chores and bumps the patch; the person
   corrects the version with `--version`.
 - `gh` is not signed in as the person: the session hands over the notes file and the command instead of posting.
-- The draft is published at a commit not on `main`: the reviewed `release` pipeline refuses it and the release stays
+- The draft is published at a commit not on `main`: the reviewed `tag` pipeline refuses it and the release stays
   without images; the person deletes it and drafts again at a commit of `main`.
 
 ## Decisions
