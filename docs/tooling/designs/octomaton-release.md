@@ -16,6 +16,7 @@ sequenceDiagram
   participant GH as GitHub
   participant O as Octomaton
   participant T as Tekton: release
+  participant AR as Artifact Registry
   P->>S: release Octomaton
   S->>R: --out notes.md --json
   R->>GH: newest v* tag, compare to main, each merge's pull request and commits
@@ -27,7 +28,7 @@ sequenceDiagram
   GH->>O: push refs/tags/v1.2.3
   O->>T: release, read at main, for the tagged commit
   T->>T: the commit is on main, or fail
-  T-->>GH: images octomaton:v1.2.3, octomaton-logs:v1.2.3
+  T->>AR: octomaton:v1.2.3, octomaton-logs:v1.2.3
 ```
 
 ## Where it lives
