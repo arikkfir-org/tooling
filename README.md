@@ -142,6 +142,10 @@ Their runs belong to the repository they run for: its namespace, checks and toke
 | `docs-publish` | `docs-publish` | pushes to `main` |
 | `linear` | `Linear` | pull requests: opened, reopened, new commits, edits and label changes; merge groups, which pass without asking |
 
+`organization.commands` enables Octomaton's built-in `/rerun [check...]` for every repository without a `commands`
+section of its own: a commenter in its allow-list (`arikkfir`) re-runs a pull request's failed checks, or the named
+ones ([comment commands](https://docs.dev.kfirs.com/octomaton/designs/comment-commands.md)).
+
 ## Development
 
 ```bash
