@@ -5,6 +5,31 @@
 `<version>`, notes generated from the pull requests merged since the previous version, and a person publishes it.
 [ENG-181](https://linear.app/arikkfir/issue/ENG-181).
 
+## Design
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant P as Person
+  participant S as Session (skill)
+  participant R as release_notes.py
+  participant GH as GitHub
+  participant O as Octomaton
+  participant T as Tekton: release
+  P->>S: release Octomaton
+  S->>R: --out notes.md --json
+  R->>GH: newest v* tag, compare to main, each merge's pull request and commits
+  R-->>S: version, target commit, notes
+  S->>P: version and notes to read
+  S->>GH: gh release create --draft (tag v1.2.3, title 1.2.3, notes)
+  Note over GH: a draft has no tag: nothing runs
+  P->>GH: publishes the release
+  GH->>O: push refs/tags/v1.2.3
+  O->>T: release, read at main, for the tagged commit
+  T->>T: the commit is on main, or fail
+  T-->>GH: images octomaton:v1.2.3, octomaton-logs:v1.2.3
+```
+
 ## Where it lives
 
 The skill is `claude/skills/octomaton-release/` in the Claude Code bundle ([Phase 5](phase-5-tooling.md)), so every
