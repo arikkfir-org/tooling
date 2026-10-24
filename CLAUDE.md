@@ -20,12 +20,13 @@ request reviewer (`reviewer/`), and the organization pipelines every repository 
   `reviewer-image`, which run on pushes to `main`, may name the ServiceAccount with Google Cloud roles
   (`ci-tooling-publish`, `main` only).
 - Tekton files (PipelineRun, Pipeline, Task, StepAction) must be short and concise, composed from references rather
-  than inlined. A PipelineRun references its Pipeline or Tasks by name (`pipelineRef`, `taskRef`), each a file of its
-  own beside it (`<name>.pipeline.yaml`, `<name>.task.yaml`), which Octomaton inlines; a step that Tasks share is a
-  StepAction (`<name>.step.yaml`, the step's `ref`). A step names its command, or runs a script file of the
-  pipeline's own repository: its checkout, or for an organization pipeline its clone of this repository's default
-  branch, never the repository under test. An inline `script` is a few lines of glue at most, such as the clone that
-  fetches those files. A change to a long, inlined file splits what it touches (`docs/tooling/designs/tekton-files.md`).
+  than inlined. A PipelineRun references its Pipeline (`pipelineRef`), or its inline `pipelineSpec` its Tasks
+  (`taskRef`), by name, each a file of its own beside it (`<name>.pipeline.yaml`, `<name>.task.yaml`), which Octomaton
+  inlines; a step that Tasks share is a StepAction (`<name>.step.yaml`, the step's `ref`). A step names its command,
+  or runs a script file of the pipeline's own repository: its checkout, or for an organization pipeline its clone of
+  this repository's default branch, never the repository under test. An inline `script` is a few lines of glue at
+  most, such as the clone that fetches those files. A change to a long, inlined file splits what it touches
+  (`docs/tooling/designs/tekton-files.md`).
 - This is the organization repository: `organization.pipelines` in `.octomaton.yaml` run in every repository, read from
   `main`. A change there applies org-wide; say so in the pull request.
 - `reviewer/`: Octomaton runs `reviewer/pipelinerun.yaml` from the default branch for every repository. Its Python is
