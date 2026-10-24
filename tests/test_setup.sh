@@ -31,6 +31,8 @@ serve dist
 ARIKKFIR_CLAUDE_STRICT=1 install_into "$work/fresh"
 [[ -f "$work/fresh/CLAUDE.md" ]] || fail "CLAUDE.md not installed"
 [[ -x "$work/fresh/hooks/arikkfir/guard.py" && -x "$work/fresh/hooks/arikkfir/format.py" ]] || fail "hooks not installed"
+[[ -f "$work/fresh/skills/octomaton-release/SKILL.md" && -f "$work/fresh/skills/octomaton-release/release_notes.py" ]] || fail "skills not installed"
+grep -qx octomaton-release "$work/fresh/hooks/arikkfir/.skills" || fail "installed skills not recorded"
 python3 - "$work/fresh/settings.json" claude/settings.json <<'PYTHON' || fail "settings.json differs from the bundle"
 import json, sys
 installed, bundled = (json.load(open(p)) for p in sys.argv[1:3])
@@ -55,6 +57,17 @@ for round in 1 2 3; do
   for pid in "${pids[@]}"; do wait "$pid" || fail "a concurrent install failed"; done
   [[ "$(snapshot "$work/concurrent$round")" == "$before" ]] || fail "concurrent installs left a broken installation"
 done
+
+# A skill the previous bundle installed and this one dropped is removed; a skill of the user's own is left alone.
+mkdir -p "$work/fresh/skills/stale" "$work/fresh/skills/mine"
+echo "# stale" > "$work/fresh/skills/stale/SKILL.md"
+echo "# mine" > "$work/fresh/skills/mine/SKILL.md"
+echo stale >> "$work/fresh/hooks/arikkfir/.skills"
+ARIKKFIR_CLAUDE_STRICT=1 install_into "$work/fresh"
+[[ ! -e "$work/fresh/skills/stale" ]] || fail "a skill dropped from the bundle was not removed"
+[[ -f "$work/fresh/skills/mine/SKILL.md" ]] || fail "the user's own skill was removed"
+rm -r "$work/fresh/skills/mine"
+[[ "$before" == "$(snapshot "$work/fresh")" ]] || fail "removing a stale skill changed the installation"
 
 # bundle.py leaves the published bundle alone, and reinstalls it over a different one.
 refresh() {
