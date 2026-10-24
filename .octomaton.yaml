@@ -130,3 +130,9 @@ organization:
         permissions: {pull_requests: read}
       secrets: [linear-api-key]
       timeout: 5m
+  # Octomaton's built-in "/rerun [check...]" (https://docs.dev.kfirs.com/octomaton/designs/comment-commands.md): on any
+  # pull request of the organization, those listed may re-run its failed checks, or the named ones, by comment.
+  commands:
+    rerun:
+      allow:
+        users: [arikkfir]
