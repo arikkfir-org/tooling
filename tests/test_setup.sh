@@ -31,8 +31,7 @@ serve dist
 ARIKKFIR_CLAUDE_STRICT=1 install_into "$work/fresh"
 [[ -f "$work/fresh/CLAUDE.md" ]] || fail "CLAUDE.md not installed"
 [[ -x "$work/fresh/hooks/arikkfir/guard.py" && -x "$work/fresh/hooks/arikkfir/format.py" ]] || fail "hooks not installed"
-[[ -f "$work/fresh/skills/octomaton-release/SKILL.md" && -f "$work/fresh/skills/octomaton-release/release_notes.py" ]] || fail "skills not installed"
-grep -qx octomaton-release "$work/fresh/hooks/arikkfir/.skills" || fail "installed skills not recorded"
+[[ -f "$work/fresh/hooks/arikkfir/.skills" && ! -s "$work/fresh/hooks/arikkfir/.skills" ]] || fail "installed skills not recorded as none"
 python3 - "$work/fresh/settings.json" claude/settings.json <<'PYTHON' || fail "settings.json differs from the bundle"
 import json, sys
 installed, bundled = (json.load(open(p)) for p in sys.argv[1:3])

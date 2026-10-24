@@ -60,8 +60,8 @@ request reviewer (`reviewer/`), and the organization pipelines every repository 
 
 - This repository's designs are in `docs/tooling/designs/`: the reviewer's (`pr-reviewer.md`), the Claude Code
   bundle's (`phase-5-tooling.md`), its sessions' access to the cluster and the docs
-  (`claude-code-cluster-access.md`), check Linear's (`linear-check.md`), the Octomaton release skill's
-  (`octomaton-release.md`) and the rule for Tekton files (`tekton-files.md`). A change keeps those it touches true, in
+  (`claude-code-cluster-access.md`), check Linear's (`linear-check.md`) and the rule for Tekton files
+  (`tekton-files.md`). A change keeps those it touches true, in
   the same pull request.
 - Pages at `https://docs.dev.kfirs.com/<path>` (every repository's `docs/`) are behind the hub's sign-in. Read one with
   `curl -fsS https://storage.googleapis.com/arikkfir-docs/.layers/<repository>/<path>`, where `<repository>` is the
