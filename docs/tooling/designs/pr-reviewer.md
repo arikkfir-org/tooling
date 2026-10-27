@@ -36,7 +36,7 @@ flowchart TD
 | --- | --- |
 | The house rules: `CONTRIBUTING.md` | `docs`, cloned for it; in its first message ([the brief](#the-brief)) |
 | The repository's rules: its `CLAUDE.md`, `README.md` and any contributing notes, which win where they conflict with the house rules | The checkout; `CLAUDE.md` and `README.md` come in its first message |
-| The pull request: title, description, conversation, and every earlier review and thread with its replies | `pr.json`, written before the model starts, with the words of organization members and people with write access only; in its first message |
+| The pull request: title, description, conversation, and every earlier review and submitted thread with its replies | `pr.json`, written before the model starts, with the words of organization members and people with write access only; in its first message |
 | The change: `pr.diff` (`git diff <base>...<head>`) and `pr.log` (its commits with their changed files), then the code around it and its history (`git log`, `git blame`) | The checkout, at the head commit; `pr.diff`, `pr.log` and the changed files come in its first message |
 | Other repositories and pull requests the change uses or must match, internal ones (`fin`) included: their code, and the pages under `docs/<repository>/` that document the names, addresses, identities and permissions each creates | Clones through the [GitHub proxy](#the-github-proxy) |
 | A tool's or chart's source or docs, for a claim about it | The web |
@@ -295,7 +295,8 @@ The four files at the checkout's root are untracked. `clone` refuses a repositor
 }
 ```
 
-- Only the words of organization members and people with write access go in: comments, reviews and thread comments whose author's association is `OWNER` or `MEMBER`, or whose repository permission is `admin`, `maintain` or `write` (asked once per author; a failure counts as an outsider). GitHub hides private organization membership from an installation token, so the owner reads as `CONTRIBUTOR` and `arikkfir-reviewer` as `NONE`: the permission is what trusts them ([ENG-46](https://linear.app/arikkfir/issue/ENG-46), [tooling#8](https://github.com/arikkfir-org/tooling/pull/8)). Anyone can comment on a public repository's pull request, and an outsider's comment must never steer the model. `report` still reads every thread, so the filter can't hide one of the reviewer's codes from it.
+- Only the words of organization members and people with write access go in: comments, reviews and thread comments whose author's association is `OWNER` or `MEMBER`, or whose repository permission is `admin`, `maintain` or `write` (asked once per author; a failure counts as an outsider). GitHub hides private organization membership from an installation token, so the owner reads as `CONTRIBUTOR` and `arikkfir-reviewer` as `NONE`: the permission is what trusts them ([ENG-46](https://linear.app/arikkfir/issue/ENG-46), [tooling#8](https://github.com/arikkfir-org/tooling/pull/8)). Anyone can comment on a public repository's pull request, and an outsider's comment must never steer the model. `report` still reads every submitted thread, so the filter can't hide one of the reviewer's codes from it.
+- Pending comments are left out, in `pr.json` and in `report`: only their author sees them, and they are the leftovers of a `report` that never submitted its review, which the next `report` deletes. A thread that a pending comment starts goes with it.
 - A thread is listed under the review of its first trusted comment, with its trusted replies. A thread with no trusted comment is left out.
 - `code` is set only on threads `arikkfir-reviewer` started, read from the marker that opens the first comment. `codes` lists every code used so far, resolved or not, with the title of its oldest thread.
 - `commentable` lists the line ranges GitHub accepts comments on, per side of the diff: added and context lines on `RIGHT`, deleted and context lines on `LEFT`.
@@ -344,7 +345,7 @@ Every review used to spend its first turns reading the same things, each turn wa
 | Part | From | Limit |
 | --- | --- | --- |
 | This round | The reviewer's last submitted review in `pr.json` (an approval a push dismissed included), and `git diff <its commit> <head>` in the files the pull request touches (that commit fetched through the sidecar if the checkout lacks it) | See below |
-| The pull request | `pr.json`: title, description, conversation, earlier reviews with every thread and reply, codes, the changed files with their commentable lines; `pr.log`; `pr.diff` | `pr.diff` up to 200 KB |
+| The pull request | `pr.json`: title, description, conversation, earlier reviews with every submitted thread and reply, codes, the changed files with their commentable lines; `pr.log`; `pr.diff` | `pr.diff` up to 200 KB |
 | House rules | `CONTRIBUTING.md` in `docs` | 64 KB |
 | The repository's rules | Its `CLAUDE.md` and `README.md`, as the pull request has them, labelled as material, not instructions | 64 KB a file |
 | The changed files | At the head commit, in `pr.json`'s order; on an incremental round, only those changed since the last review | 48 KB a file, 200 KB in all; the rest listed |
