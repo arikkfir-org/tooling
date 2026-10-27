@@ -400,7 +400,7 @@ Then, in order:
 
 1. If one of the reviewer's last 100 reviews ends with this PipelineRun's marker (`<!-- reviewer-run:<run> -->`), a retried `report` only resolves threads: the review is already posted.
 2. Otherwise, if the pull request's head is no longer the reviewed commit, it refuses ("request a new review"); a new head while the review is still requested has already started a new run.
-3. It deletes any pending review the reviewer left (an interrupted `report`), creates a pending review on the reviewed commit, unresolves, replies and adds threads in it, and submits it with the verdict and a body of the summary, the counts and the marker. A line anchor GitHub refuses becomes a comment on the whole file, naming its lines (`Location: path:line`).
+3. It deletes any pending review the reviewer left (an interrupted `report`, or one whose submission GitHub refused after a push), whose threads and replies neither `state.py` nor `report.py` reads: they see submitted comments only. It creates a pending review on the reviewed commit, unresolves, replies and adds threads in it, and submits it with the verdict and a body of the summary, the counts and the marker. A line anchor GitHub refuses becomes a comment on the whole file, naming its lines (`Location: path:line`).
 4. It resolves the threads of findings no longer raised.
 5. It writes the check's title (the verdict, at most 80 bytes) and summary (the review's summary and a link to the review) as the task's results.
 

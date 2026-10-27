@@ -48,7 +48,7 @@ def doc(**items):
 
 
 def thread(thread_id, code=None, author=REVIEWER, resolved_by=None, created="2026-09-01T00:00:00Z", review=1,
-           body=None, association="MEMBER"):
+           body=None, association="MEMBER", comment_state="SUBMITTED"):
     """A review thread as GitHub's GraphQL API returns it; a code makes it one of the reviewer's findings."""
     if body is None:
         body = report.comment(code, finding(), marker=True) if code else "A question."
@@ -57,10 +57,16 @@ def thread(thread_id, code=None, author=REVIEWER, resolved_by=None, created="202
         "startLine": None, "diffSide": "RIGHT", "subjectType": "LINE",
         "resolvedBy": {"login": resolved_by} if resolved_by else None,
         "comments": {"nodes": [{"author": {"login": author}, "authorAssociation": association, "body": body,
-                                "createdAt": created,
+                                "createdAt": created, "state": comment_state,
                                 "url": f"https://github.com/o/r/pull/7#{thread_id}",
                                 "pullRequestReview": {"databaseId": review}}]},
     }
+
+
+def with_reply(node, body="A pending reply.", comment_state="PENDING"):
+    """node with a reply by the reviewer appended."""
+    reply = {**node["comments"]["nodes"][0], "body": body, "state": comment_state}
+    return {**node, "comments": {"nodes": node["comments"]["nodes"] + [reply]}}
 
 
 class FakeGitHub:
@@ -165,6 +171,19 @@ class ThreadsTest(unittest.TestCase):
         ]:
             with self.subTest(name):
                 self.assertEqual(state.thread_code(node, REVIEWER), expected)
+
+    def test_submitted(self):
+        submitted = thread("T1", "IAM-3")
+        for name, nodes, expected in [
+            ("a submitted thread", [submitted], [submitted]),
+            ("a pending thread", [thread("T1", "IAM-3", comment_state="PENDING")], []),
+            ("a pending reply", [with_reply(submitted)], [submitted]),
+            ("a submitted reply", [with_reply(submitted, comment_state="SUBMITTED")],
+             [with_reply(submitted, comment_state="SUBMITTED")]),
+            ("no comments", [{"id": "T1", "comments": {"nodes": []}}], []),
+        ]:
+            with self.subTest(name):
+                self.assertEqual(state.submitted(nodes), expected)
 
     def test_group_threads(self):
         reviews = [{"id": 1, "state": "CHANGES_REQUESTED"}, {"id": 2, "state": "COMMENTED"}]
@@ -735,6 +754,25 @@ class ReportTest(unittest.TestCase):
         })
         self.assertEqual(title, "Changes requested: 1 blocking, 1 non-blocking, 1 nit")
         self.assertEqual(summary, f"What the change does.\n\n[The review on GitHub]({REVIEW_URL})")
+
+    def test_a_failed_runs_pending_threads_are_ignored(self):
+        # A run that failed between adding its review and submitting it left the review pending, with a new thread
+        # and a reply. This run deletes that review, so it must neither reply to its thread nor count its code.
+        fake = FakeGitHub(
+            files=self.PATCHES,
+            threads=[with_reply(thread("T-old", "IAM-1")), thread("T-pending", "NEW-1", comment_state="PENDING")],
+            pending=["PRR_left_over"],
+        )
+        self.post(fake, {"IAM-1": finding("non-blocking"), "NEW-1": finding("non-blocking", path="main.tf", line=2)})
+        self.assertEqual([(name, variables.get("id") or variables.get("input", {}).get("pullRequestReviewThreadId")
+                           or variables.get("input", {}).get("path") or variables.get("commit"))
+                          for name, variables in fake.mutations], [
+            ("DeleteReview", "PRR_left_over"),
+            ("AddReview", REVISION),
+            ("AddReply", "T-old"),
+            ("AddThread", "main.tf"),
+            ("SubmitReview", None),
+        ])
 
     def test_approves_nits(self):
         fake = FakeGitHub(files=self.PATCHES)

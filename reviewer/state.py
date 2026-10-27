@@ -34,7 +34,7 @@ query Threads($owner: String!, $name: String!, $number: Int!, $after: String) {
           id isResolved isOutdated path line startLine diffSide subjectType
           resolvedBy { login }
           comments(first: 100) {
-            nodes { author { login } authorAssociation body createdAt url pullRequestReview { databaseId } }
+            nodes { author { login } authorAssociation body createdAt state url pullRequestReview { databaseId } }
           }
         }
       }
@@ -110,13 +110,25 @@ def title(body):
     return match[1] if match else lines[0]
 
 
+def submitted(threads):
+    """The threads without their pending comments, which only their author sees: a failed run's leftovers, which
+    report.py deletes with their review. A thread that a pending comment starts goes with it."""
+    kept = []
+    for thread in threads:
+        comments = [c for c in (thread.get("comments") or {}).get("nodes") or [] if c.get("state") != "PENDING"]
+        if comments:
+            kept.append({**thread, "comments": {**thread["comments"], "nodes": comments}})
+    return kept
+
+
 def fetch_threads(client, owner, name, number):
-    """Every review thread of the pull request, as GraphQL returns it (each with its first 100 comments)."""
+    """Every submitted review thread of the pull request, as GraphQL returns it (each with its first 100 submitted
+    comments)."""
     threads, after = [], None
     while True:
         data = client.graphql(THREADS_QUERY, {"owner": owner, "name": name, "number": number, "after": after})
         page = data["repository"]["pullRequest"]["reviewThreads"]
-        threads += page["nodes"]
+        threads += submitted(page["nodes"])
         if not page["pageInfo"]["hasNextPage"]:
             return threads
         after = page["pageInfo"]["endCursor"]
