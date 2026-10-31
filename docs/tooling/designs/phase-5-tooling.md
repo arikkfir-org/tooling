@@ -57,7 +57,7 @@ curl -fsS https://storage.googleapis.com/arikkfir-docs/.layers/docs/CONTRIBUTING
 
 The house rules name the docs site and its bucket, which the rest of the bundle never does. Both are public already, in `docs`'s own copy of the page. `CLAUDE.md` grows to about 34,000 characters, under 40,000, the least size at which Claude Code warns that a `CLAUDE.md` is large (more with a larger context window).
 
-The house rules in `CLAUDE.md` come with ENG-227.
+The house rules in `CLAUDE.md` come with ENG-227 (arikkfir-org/tooling#59).
 
 ## Installation in a session
 
