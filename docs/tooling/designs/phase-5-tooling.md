@@ -57,7 +57,7 @@ Not from the docs site's bucket, which `docs-publish` updates only after the mer
 
 `scripts/house_rules.py` keeps `CLAUDE.md` up to `# House rules` and replaces the rest with the page: its title becomes `# House rules`, a comment says where to change it, and its relative links, which mean nothing outside the site, become the site's URLs (`https://docs.dev.kfirs.com/<path>.md`), as the house rules link a page from outside it. Links to its own headings stay, and so do code spans and blocks. Running it again on the same page changes nothing. The style's review-thread notes went away with the copy: the house rules' "Answering a review" says all of them.
 
-The house rules name the docs site and its bucket, which the rest of the bundle never does. Both are public already, in `docs`'s own copy of the page. `CLAUDE.md` grows to about 34,000 characters, under 40,000, the least size at which Claude Code warns that a `CLAUDE.md` is large (more with a larger context window).
+The house rules name the docs site and its bucket, which the rest of the bundle never does. Their names are public already, in the public `docs` repository's copy of the page; the site and the bucket themselves stay private. `CLAUDE.md` grows to about 34,000 characters, under 40,000, the least size at which Claude Code warns that a `CLAUDE.md` is large (more with a larger context window).
 
 The house rules in `CLAUDE.md` come with ENG-227 (arikkfir-org/tooling#59).
 
