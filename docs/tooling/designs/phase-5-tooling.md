@@ -47,11 +47,13 @@ Skills (`claude/skills/<name>/`, installed to `~/.claude/skills/<name>/`) come w
 
 ## House rules
 
-The house rules, [`CONTRIBUTING.md`](../../CONTRIBUTING.md) of `docs`, are the second half of `CLAUDE.md`, under `# House rules`, so a session has them in context from its first turn instead of fetching the page, and one file holds both. `docs` stays their source: a change merged there is followed by a pull request here that copies it in.
+The house rules, [`CONTRIBUTING.md`](../../CONTRIBUTING.md) of `docs`, are the second half of `CLAUDE.md`, under `# House rules`, so a session has them in context from its first turn instead of fetching the page, and one file holds both. `docs` stays their source: a change merged there is followed by a pull request here that copies in the page of its merge commit, from GitHub, since `docs` is public.
 
 ```bash
-curl -fsS https://storage.googleapis.com/arikkfir-docs/.layers/docs/CONTRIBUTING.md | python3 scripts/house_rules.py -
+curl -fsS https://raw.githubusercontent.com/arikkfir-org/docs/<commit>/CONTRIBUTING.md | python3 scripts/house_rules.py -
 ```
+
+Not from the docs site's bucket, which `docs-publish` updates only after the merge: a copy made before then finds the old page, and the script reports nothing to change.
 
 `scripts/house_rules.py` keeps `CLAUDE.md` up to `# House rules` and replaces the rest with the page: its title becomes `# House rules`, a comment says where to change it, and its relative links, which mean nothing outside the site, become the site's URLs (`https://docs.dev.kfirs.com/<path>.md`), as the house rules link a page from outside it. Links to its own headings stay, and so do code spans and blocks. Running it again on the same page changes nothing. The style's review-thread notes went away with the copy: the house rules' "Answering a review" says all of them.
 

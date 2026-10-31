@@ -13,8 +13,10 @@ request reviewer (`reviewer/`), and the organization pipelines every repository 
 - Hooks must never break a session: catch everything, fail open, stay fast (< 1 s typical), stdlib-only Python 3.
 - `claude/CLAUDE.md` is the user's personal response style, then the house rules: `CONTRIBUTING.md` of `docs`, whole,
   under `# House rules`. Change the style's substance only when asked. Never edit the house rules here: they change in
-  `docs`, and each change there is followed by a pull request here that copies it in with `scripts/house_rules.py`
-  (`curl -fsS https://storage.googleapis.com/arikkfir-docs/.layers/docs/CONTRIBUTING.md | python3 scripts/house_rules.py -`).
+  `docs`, and each change there is followed by a pull request here that copies the page of its merge commit in with
+  `scripts/house_rules.py`
+  (`curl -fsS https://raw.githubusercontent.com/arikkfir-org/docs/<commit>/CONTRIBUTING.md | python3 scripts/house_rules.py -`).
+  Not from the docs site's bucket, which `docs-publish` updates only after the merge.
 - `setup/setup.sh` must stay idempotent and fail-soft (warn and exit 0 unless `ARIKKFIR_CLAUDE_STRICT=1`). Keep the
   `@BUNDLE_SHA256@` placeholder; `scripts/build.sh` pins it.
 - Bundles are content-addressed and immutable. Upload bundles before `setup.sh`.
