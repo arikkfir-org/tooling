@@ -10,7 +10,7 @@ A user-level configuration installed into `~/.claude` of every Claude Code on th
 
 | File | Purpose |
 | --- | --- |
-| [`claude/CLAUDE.md`](claude/CLAUDE.md) | User-level instructions: tone, terseness, answer-first responses |
+| [`claude/CLAUDE.md`](claude/CLAUDE.md) | User-level instructions: tone, terseness, answer-first responses; then the house rules, `CONTRIBUTING.md` of `docs` whole, which [`scripts/house_rules.py`](scripts/house_rules.py) copies in after each change there |
 | [`claude/settings.json`](claude/settings.json) | Registers the hooks; runs the repositories' checks, local git, read-only GitHub tools and the `gke` MCP server's read tools without a prompt, denies the `gke` MCP server's write tools, and asks before a remote branch deletion or a switch that discards changes or resets a branch |
 | [`claude/mcp.json`](claude/mcp.json) | MCP servers: `gke`, GKE's remote MCP server (`https://container.googleapis.com/mcp`), which reads the hub cluster as the environment's Google Cloud credential, `claude-code@` ([design](docs/tooling/designs/claude-code-cluster-access.md)) |
 | [`claude/hooks/guard.py`](claude/hooks/guard.py) | `PreToolUse` (Bash): denies force-pushes/deletions of `main`/`master` and recursive deletion of `/` or `~`; asks before deleting any other remote branch and before a `git switch` that discards changes or resets a branch, in any spelling |
