@@ -1,13 +1,14 @@
 # Phase 5: Claude Code tooling
 
-**Goal**: every Claude Code on the web session starts with the same user-level configuration: response style
-(`CLAUDE.md`), safety and quality hooks, and permissions for routine commands. It is published publicly from
+**Goal**: every Claude Code on the web session starts with the same user-level configuration: response style and the
+house rules (`CLAUDE.md`), safety and quality hooks, and permissions for routine commands. It is published publicly from
 [arikkfir-org/tooling](https://github.com/arikkfir-org/tooling), and no secrets can enter it.
 
 ## Design
 
 ```mermaid
 flowchart LR
+  HR[arikkfir-org/docs<br/>CONTRIBUTING.md] -- "scripts/house_rules.py,<br/>in a pull request" --> C
   subgraph repo[arikkfir-org/tooling]
     C[claude/<br/>CLAUDE.md, settings.json,<br/>mcp.json, hooks/*.py, skills/]
     S[setup/setup.sh]
@@ -22,7 +23,7 @@ flowchart LR
 
 | File | Purpose |
 | --- | --- |
-| `CLAUDE.md` | Lead with the answer; answer only what was asked; one to three lines by default; "Yes" or "No" first; findings without their evidence, in plain terms; terse, plain language; no preaching or hedging; how to answer review threads |
+| `CLAUDE.md` | The response style: lead with the answer; answer only what was asked; one to three lines by default; "Yes" or "No" first; findings without their evidence, in plain terms; terse, plain language; no preaching or hedging; Linear keys as links. Then the house rules, whole ([below](#house-rules)) |
 | `settings.json` | Registers the hooks. Allows the repositories' checks, local git, the read-only GitHub tools and the `gke` MCP server's read tools without a prompt, denies that server's write tools, and asks before a push that deletes a branch or a switch that discards changes or resets a branch |
 | `mcp.json` | MCP servers: `gke`, GKE's remote MCP server, which reads the hub cluster ([cluster and docs access](claude-code-cluster-access.md)) |
 | `hooks/guard.py` (`PreToolUse`, Bash) | Denies force-pushes and deletions targeting `main`/`master` (explicit, `HEAD`, or the checked-out branch) and recursive deletion of `/` or the home directory. Asks, even where an allow rule matches, before deleting any other remote branch and before a `git switch` that discards changes or resets a branch, however its options are spelled |
@@ -43,6 +44,22 @@ Hooks are stdlib-only Python, fail open (a bug never blocks the session) and are
 `rm -r` stops asking with arikkfir-org/tooling#31.
 
 Skills (`claude/skills/<name>/`, installed to `~/.claude/skills/<name>/`) come with arikkfir-org/tooling#53, with `octomaton-release`, the first; that skill went away in the next pull request, since a Claude Code session may not create GitHub releases, and Octomaton's release notes are GitHub's generated ones. The bundle ships no skill at present.
+
+## House rules
+
+The house rules, [`CONTRIBUTING.md`](../../CONTRIBUTING.md) of `docs`, are the second half of `CLAUDE.md`, under `# House rules`, so a session has them in context from its first turn instead of fetching the page, and one file holds both. `docs` stays their source: a change merged there is followed by a pull request here that copies in the page of its merge commit, from GitHub, since `docs` is public.
+
+```bash
+curl -fsS https://raw.githubusercontent.com/arikkfir-org/docs/<commit>/CONTRIBUTING.md | python3 scripts/house_rules.py -
+```
+
+Not from the docs site's bucket, which `docs-publish` updates only after the merge: a copy made before then finds the old page, and the script reports nothing to change.
+
+`scripts/house_rules.py` keeps `CLAUDE.md` up to `# House rules` and replaces the rest with the page: its title becomes `# House rules`, a comment says where to change it, and its relative links, which mean nothing outside the site, become the site's URLs (`https://docs.dev.kfirs.com/<path>.md`), as the house rules link a page from outside it. Links to its own headings stay, and so do code spans and blocks. Running it again on the same page changes nothing. The style's review-thread notes went away with the copy: the house rules' "Answering a review" says all of them.
+
+The house rules name the docs site and its bucket, which the rest of the bundle never does. Their names are public already, in the public `docs` repository's copy of the page; the site and the bucket themselves stay private. `CLAUDE.md` grows to about 34,000 characters, under 40,000, the least size at which Claude Code warns that a `CLAUDE.md` is large (more with a larger context window).
+
+The house rules in `CLAUDE.md` come with ENG-227 (arikkfir-org/tooling#59).
 
 ## Installation in a session
 
@@ -115,4 +132,5 @@ Bucket `arikkfir-claude` and its grants are `infra`'s ([root gcp, Buckets](../..
 | `add_repo.py` keyed to the remote-session server's exact tool names and the organization's public repositories | It grants permission: a same-named tool from another server, `fin`, or another organization's repository keeps the normal prompt. The hooks that only remind or configure match the tool from any server | A broad `mcp__.*__add_repo` matcher, or every `arikkfir-org` repository |
 | Work-losing git commands also asked about by `guard.py` | A glob can't tell `git switch -qf` from `git switch -c feature`, and a rule ending in `:*` is a trailing wildcard, not a literal colon; `guard.py` parses the command, clusters and `:branch` refspecs included. The ask rules stay for when the hook fails open | Ask rules alone |
 | `dockerd` started without waiting for it | Session start stays as fast as before; the first `docker` command waits instead | Waiting for the daemon in the hook |
+| The house rules copied into `CLAUDE.md` by a script, in a pull request after each change to them | A session starts with every rule in context; the copy is reviewed like any change to the bundle, and the bundle stays the content of one commit | Linking the page and trusting sessions to read it, which they skipped; fetching the page in `build.sh`, which would ship what no pull request showed and still wait for a push here; a `SessionStart` hook fetching it, which fails open into a session without them; a check comparing the copy with `docs`'s `main`, which would turn every open pull request here red at each change to the rules |
 | Skills shipped in the bundle, one directory each | A procedure every session may be asked to run lives in one place, updated with the bundle; a skill's files are allowlisted like the hooks, so the public bundle stays free of secrets | A skill committed in `octomaton`, which a session would have to attach first; a slash command |

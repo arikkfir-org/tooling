@@ -11,7 +11,12 @@ request reviewer (`reviewer/`), and the organization pipelines every repository 
   `claude/skills/<name>/SKILL.md` with `.md` and `.py` files beside it. Anything else needs a matching change to
   `scripts/verify.py`. Skills are stdlib-only Python too, and link only public pages (GitHub, never the docs site).
 - Hooks must never break a session: catch everything, fail open, stay fast (< 1 s typical), stdlib-only Python 3.
-- `claude/CLAUDE.md` is the user's personal response style. Change its substance only when asked.
+- `claude/CLAUDE.md` is the user's personal response style, then the house rules: `CONTRIBUTING.md` of `docs`, whole,
+  under `# House rules`. Change the style's substance only when asked. Never edit the house rules here: they change in
+  `docs`, and each change there is followed by a pull request here that copies the page of its merge commit in with
+  `scripts/house_rules.py`
+  (`curl -fsS https://raw.githubusercontent.com/arikkfir-org/docs/<commit>/CONTRIBUTING.md | python3 scripts/house_rules.py -`).
+  Not from the docs site's bucket, which `docs-publish` updates only after the merge.
 - `setup/setup.sh` must stay idempotent and fail-soft (warn and exit 0 unless `ARIKKFIR_CLAUDE_STRICT=1`). Keep the
   `@BUNDLE_SHA256@` placeholder; `scripts/build.sh` pins it.
 - Bundles are content-addressed and immutable. Upload bundles before `setup.sh`.
@@ -67,7 +72,8 @@ request reviewer (`reviewer/`), and the organization pipelines every repository 
   `curl -fsS https://storage.googleapis.com/arikkfir-docs/.layers/<repository>/<path>`, where `<repository>` is the
   path's first segment when it names a repository (`infra/terraform/gcp.md` is `infra`'s) and `docs` otherwise
   (`CONTRIBUTING.md`). Don't clone a repository to read its docs. Never write that hostname or bucket into `claude/`,
-  which is public.
+  which is public, outside the house rules that `scripts/house_rules.py` copies in: they name both, as they do in
+  `docs`, which is public too.
 
 ## Before finishing a change
 
