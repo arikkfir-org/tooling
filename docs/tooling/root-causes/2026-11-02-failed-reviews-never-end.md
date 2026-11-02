@@ -1,6 +1,6 @@
 # A failed AI Review never ends: its retry waits for a volume until the run is cancelled
 
-**Status**: 🟡 fixed in the pull request that adds this page; the reviewer runs from `tooling`'s `main`, so its merge deploys it · **Seen in**: check `AI Review`, every repository, the hub's Tekton v1.15.0 · **Since**: the review became one pod with a sidecar and a retry (October 2026) · **Issue**: [ENG-240](https://linear.app/arikkfir/issue/ENG-240)
+**Status**: 🟡 fixed by [tooling#60](https://github.com/arikkfir-org/tooling/pull/60); the reviewer runs from `tooling`'s `main`, so its merge deploys it · **Seen in**: check `AI Review`, every repository, the hub's Tekton v1.15.0 · **Since**: the review became one pod with a sidecar and a retry (October 2026) · **Issue**: [ENG-240](https://linear.app/arikkfir/issue/ENG-240)
 
 ## 🎯 TL;DR
 
@@ -54,7 +54,7 @@ Every repository's AI Review. A failed review whose retry landed on another node
 
 ## 🩺 Still on `main`?
 
-🟡 Fixed in the pull request that adds this page, not merged yet: the review task no longer retries, and Octomaton reruns a review whose pod the cluster took away (`disruptions: {reruns: 1}` on pipeline `review`), as a new run with a volume of its own. `main` before it retries once.
+🟡 Fixed by [tooling#60](https://github.com/arikkfir-org/tooling/pull/60), not merged yet: the review task no longer retries, and Octomaton reruns a review whose pod the cluster took away (`disruptions: {reruns: 1}` on pipeline `review`), as a new run with a volume of its own. `main` before it retries once.
 
 ## 📊 Confidence
 
