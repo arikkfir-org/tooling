@@ -11,7 +11,7 @@ is in this repository's `CLAUDE.md`, so its reviews hold changes to it. Linear:
 ## Context
 
 - A PipelineRun with an inline `pipelineSpec`, `taskSpec` and step `script`s grows into one long file of YAML wrapping
-  shell: `reviewer/pipelinerun.yaml` holds 399 lines, `docs-site/` and `linear/` 126 to 148 each. Its scripts can't be
+  shell: `reviewer/pipelinerun.yaml` held 399 lines, `docs-site/` and `linear/` 126 to 148 each. Its scripts can't be
   linted or run on their own, and a step two pipelines share is copied into both.
 - Octomaton resolves `pipelineRef`, `taskRef` and a step's `ref` by name to `<name>.pipeline.yaml`, `<name>.task.yaml`
   and `<name>.step.yaml` beside the PipelineRun file, at the same commit, and inlines them, so the run Tekton gets is
@@ -58,7 +58,8 @@ flowchart LR
 1. `CLAUDE.md` states the rule ([tooling#57](https://github.com/arikkfir-org/tooling/pull/57)). No manual step; rolling
    back is reverting it.
 2. This repository's pipelines and the organization pipelines stay as they are until a change touches them, which then
-   splits what it touches.
+   splits what it touches. The reviewer's task moved into `reviewer/review.task.yaml` with a change to its retries
+   ([tooling#60](https://github.com/arikkfir-org/tooling/pull/60)).
 
 ## Open questions
 

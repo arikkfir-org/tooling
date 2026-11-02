@@ -1175,8 +1175,10 @@ class PipelineRunTest(unittest.TestCase):
         self.assertGreaterEqual(12 * 1024 // (3 + len(blocks)), report.MAX_MESSAGE_BYTES)
 
     def test_mounts_only_the_reviewers_secrets(self):
-        with open(os.path.join(REVIEWER_DIR, "pipelinerun.yaml"), encoding="utf-8") as f:
-            text = f.read()
+        text = ""
+        for name in ("pipelinerun.yaml", "review.task.yaml"):
+            with open(os.path.join(REVIEWER_DIR, name), encoding="utf-8") as f:
+                text += f.read()
         names = re.findall(r"secretKeyRef:\n\s+name: (\S+)\n", text)
         self.assertEqual(len(names), text.count("secretKeyRef:"))
         self.assertEqual(sorted(set(names)), ["reviewer-deepseek-api-key", "reviewer-github-pat"])
@@ -1198,7 +1200,7 @@ class PipelineRunTest(unittest.TestCase):
         # with HOME (git's and python's configuration) and its working directory there too, python without user
         # site-packages or PYTHON* variables, and names the volume once, for findings.json.
         block = step_blocks()["report"]
-        self.assertIn("\n              workingDir: /tmp\n", block)
+        self.assertIn("\n      workingDir: /tmp\n", block)
         for name, value in (("HOME", "/tmp/home"), ("XDG_CONFIG_HOME", "/tmp/home/.config"),
                             ("XDG_DATA_HOME", "/tmp/home/.local/share"), ("XDG_STATE_HOME", "/tmp/home/.local/state"),
                             ("XDG_CACHE_HOME", "/tmp/home/.cache")):
@@ -1221,31 +1223,40 @@ class PipelineRunTest(unittest.TestCase):
                 self.assertRegex(block, r"^ {8}requests:\n {10}cpu: \S+\n {10}memory: \S+\n"
                                         r" {8}limits:\n {10}memory: \S+\n$")
 
+    def test_a_failed_review_ends_the_run(self):
+        # Tekton stops a pod's sidecars only once its TaskRun is done, which a retried attempt never is: a retry left
+        # the failed pod's github sidecar holding the volume, and the retry's pod waited for it until the run was
+        # cancelled (docs/tooling/root-causes/2026-11-02-failed-reviews-never-end.md). The task never retries;
+        # Octomaton reruns a review whose pod the cluster took away.
+        for name in ("pipelinerun.yaml", "review.task.yaml"):
+            with self.subTest(file=name), open(os.path.join(REVIEWER_DIR, name), encoding="utf-8") as f:
+                self.assertNotRegex(f.read(), r"(?m)^\s*retries:")
+
 
 def step_script(step):
-    """The script of a step in reviewer/pipelinerun.yaml."""
-    with open(os.path.join(REVIEWER_DIR, "pipelinerun.yaml"), encoding="utf-8") as f:
+    """The script of a step in reviewer/review.task.yaml."""
+    with open(os.path.join(REVIEWER_DIR, "review.task.yaml"), encoding="utf-8") as f:
         text = f.read()
     block = re.search(rf"^( +)- name: {step}\n(?:\1  .*\n)*?\1  script: \|\n((?:\1    .*\n|\n)+)", text, re.MULTILINE)
     return textwrap.dedent(block.group(2))
 
 
 def step_blocks():
-    """Each container's block of reviewer/pipelinerun.yaml (the sidecar's and every step's), by name: its `- name:`
+    """Each container's block of reviewer/review.task.yaml (the sidecar's and every step's), by name: its `- name:`
     line and the lines indented beneath it."""
-    with open(os.path.join(REVIEWER_DIR, "pipelinerun.yaml"), encoding="utf-8") as f:
+    with open(os.path.join(REVIEWER_DIR, "review.task.yaml"), encoding="utf-8") as f:
         lines = f.read().splitlines(keepends=True)
     blocks, name = {}, None
     for line in lines:
-        head = re.match(r"^ {12}- name: (\S+)\n", line)
+        head = re.match(r"^ {4}- name: (\S+)\n", line)
         if head:
             name = head.group(1)
             blocks[name] = line
-        elif name and (line.startswith(" " * 14) or line == "\n"):
+        elif name and (line.startswith(" " * 6) or line == "\n"):
             blocks[name] += line
         else:
             name = None
-    return {name: block for name, block in blocks.items() if "\n              image: " in block}
+    return {name: block for name, block in blocks.items() if "\n      image: " in block}
 
 
 class FakeGitServer(http.server.ThreadingHTTPServer):
@@ -1775,7 +1786,7 @@ class ReviewPipelineRunTest(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        with open(os.path.join(REVIEWER_DIR, "pipelinerun.yaml"), encoding="utf-8") as f:
+        with open(os.path.join(REVIEWER_DIR, "review.task.yaml"), encoding="utf-8") as f:
             cls.text = f.read()
 
     def test_every_step_runs_the_reviewer_images_main_tag_pulled_every_time(self):
@@ -1789,18 +1800,18 @@ class ReviewPipelineRunTest(unittest.TestCase):
 
     def review_steps(self):
         """Each step of the review task: its name and its YAML."""
-        review = self.text[self.text.index("      - name: review\n"):self.text.index("      - name: report\n")]
-        steps = review[review.index("\n          steps:\n"):]
-        return dict(re.findall(r"^ {12}- name: (\S+)\n((?: {14}.*\n|\n)*)", steps, re.MULTILINE))
+        review = self.text[:self.text.index("\n    - name: report\n")]
+        steps = review[review.index("\n  steps:\n"):]
+        return dict(re.findall(r"^ {4}- name: (\S+)\n((?: {6}.*\n|\n)*)", steps, re.MULTILINE))
 
     def test_only_clone_and_the_sidecar_mount_the_token(self):
-        review = self.text[self.text.index("      - name: review\n"):self.text.index("      - name: report\n")]
-        self.assertRegex(review, r"\n {10}sidecars:\n {12}- name: github\n(?: {14}.*\n)*? {14}workspaces:\n"
-                                 r" {16}- name: github-token\n")
+        review = self.text[:self.text.index("\n    - name: report\n")]
+        self.assertRegex(review, r"\n {2}sidecars:\n {4}- name: github\n(?: {6}.*\n)*? {6}workspaces:\n"
+                                 r" {8}- name: github-token\n")
         steps = self.review_steps()
         self.assertEqual(list(steps), ["clone", "review", "check", "fix", "recheck"])
         mounting = [name for name, step in steps.items()
-                    if re.search(r"^ {14}workspaces:\n {16}- name: github-token\n", step, re.MULTILINE)]
+                    if re.search(r"^ {6}workspaces:\n {8}- name: github-token\n", step, re.MULTILINE)]
         self.assertEqual(mounting, ["clone"])
         for step in ("review", "fix"):
             with self.subTest(step=step):
@@ -1815,13 +1826,13 @@ class ReviewPipelineRunTest(unittest.TestCase):
                     step = step.replace(path, "")
                 self.assertNotIn("github-token", step)
         # Mounted outside /workspace, which every step shares, so no mount point shows in the model's steps.
-        self.assertRegex(review, r"\n {12}- name: github-token\n {14}mountPath: /var/run/github-token\n")
+        self.assertRegex(review, r"\n {4}- name: github-token\n {6}mountPath: /var/run/github-token\n")
 
     def test_the_deepseek_key_reaches_only_the_model(self):
         steps = self.review_steps()
         holding = [name for name, step in steps.items() if "reviewer-deepseek-api-key" in step]
         self.assertEqual(holding, ["review", "fix"])
-        template = self.text[self.text.index("          stepTemplate:\n"):self.text.index("          steps:\n")]
+        template = self.text[self.text.index("\n  stepTemplate:\n"):self.text.index("\n  steps:\n")]
         self.assertNotIn("reviewer-deepseek-api-key", template)
 
     TOKEN_PATHS = ("/workspace/github-token", "/var/run/github-token")  # the sidecar's mount, and clone's
@@ -1916,7 +1927,7 @@ class ReviewPipelineRunTest(unittest.TestCase):
 
     def test_the_model_works_in_the_checkout(self):
         # Steps start in the volume's root, made when the pod starts, and cd into the checkout clone makes.
-        self.assertIn("\n          stepTemplate:\n            workingDir: $(workspaces.shared.path)\n", self.text)
+        self.assertIn("\n  stepTemplate:\n    workingDir: $(workspaces.shared.path)\n", self.text)
         for step in ("review", "check", "fix", "recheck"):
             with self.subTest(step=step):
                 self.assertTrue(step_script(step).startswith('#!/bin/sh\nset -eu\ncd "${NAME}"\n'))
@@ -1927,7 +1938,7 @@ class ReviewPipelineRunTest(unittest.TestCase):
     def test_nothing_in_the_checkout_configures_opencode(self):
         for variable in ("OPENCODE_DISABLE_PROJECT_CONFIG", "OPENCODE_DISABLE_EXTERNAL_SKILLS",
                          "OPENCODE_DISABLE_CLAUDE_CODE_PROMPT"):
-            self.assertIn(f"- name: {variable}\n                value: \"1\"\n", self.text)
+            self.assertIn(f"- name: {variable}\n        value: \"1\"\n", self.text)
 
     def test_the_model_runs_no_subagents(self):
         with open(os.path.join(REVIEWER_DIR, "opencode.json"), encoding="utf-8") as f:
