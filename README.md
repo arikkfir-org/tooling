@@ -75,7 +75,8 @@ review, with a thread per finding. Details are in the
 
 | File | Purpose |
 | --- | --- |
-| [`reviewer/pipelinerun.yaml`](reviewer/pipelinerun.yaml) | The PipelineRun: task `review`, whose last step `report` posts the review |
+| [`reviewer/pipelinerun.yaml`](reviewer/pipelinerun.yaml) | The PipelineRun: its volume, ServiceAccount, sandbox, resources and timeouts, and task `review` |
+| [`reviewer/review.task.yaml`](reviewer/review.task.yaml) | Task `review`, which Octomaton inlines: the `github` sidecar and six steps, the last of which, `report`, posts the review |
 | [`reviewer/prompt.md`](reviewer/prompt.md) | The reviewer's instructions, with the `findings.json` schema |
 | [`reviewer/opencode.json`](reviewer/opencode.json) | opencode's configuration: the model, no sharing, every tool allowed but subagents |
 | [`reviewer/brief.py`](reviewer/brief.py) | Writes the model's first message: the prompt, then what every review reads first (the pull request, the house rules, the repository's rules, the changed files), so its turns go to the review |
@@ -85,7 +86,7 @@ review, with a thread per finding. Details are in the
 | [`reviewer/github_proxy.py`](reviewer/github_proxy.py) | The review task's `github` sidecar: serves GitHub's API (reads only) and git fetches to the model on `127.0.0.1:8080`, adding the run's token, which the model never sees |
 
 Pipeline `review` is an organization pipeline, declared once in this repository's `.octomaton.yaml` (below), so every
-repository has it. Octomaton reads `reviewer/pipelinerun.yaml` from this repository's default branch, and the scripts
+repository has it. Octomaton reads `reviewer/pipelinerun.yaml` and its Task from this repository's default branch, and the scripts
 and the prompt run from the default branch too: the `clone` step extracts `reviewer/` from it, and the `report` step
 clones its own copy, in its own container. So no pull request, here or elsewhere, changes its own review; a change here
 takes effect once merged.
@@ -94,7 +95,7 @@ Every step, the model's included, runs in the reviewer image, `me-west1-docker.p
 (opencode and the tools the [design](docs/tooling/designs/pr-reviewer.md#opencode) lists), built from
 [`reviewer/image`](reviewer/image) and published by `reviewer-image` ([`.tekton/reviewer-image.yaml`](.tekton/reviewer-image.yaml))
 on a push to `main` that changes it; `reviewer-image-check` builds it for a pull request that changes it.
-`reviewer/pipelinerun.yaml` runs its `main` tag and pulls it for every pod, so a change there reaches the next review. Octomaton mints the run's token for every repository of the organization, reading code and pull
+Task `review` runs its `main` tag and pulls it for every pod, so a change there reaches the next review. Octomaton mints the run's token for every repository of the organization, reading code and pull
 requests only. In `review`, only the `clone` step, which runs before the model and also writes `pr.json`, and the
 `github` sidecar mount it, so the model reads other repositories' code and pull requests (an internal one's too) through the sidecar,
 never with the token. `arikkfir-reviewer`'s token is in the `report` step's container alone, which starts its work once
