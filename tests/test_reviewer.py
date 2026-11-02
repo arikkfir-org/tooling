@@ -1223,6 +1223,14 @@ class PipelineRunTest(unittest.TestCase):
                 self.assertRegex(block, r"^ {8}requests:\n {10}cpu: \S+\n {10}memory: \S+\n"
                                         r" {8}limits:\n {10}memory: \S+\n$")
 
+    def test_a_failed_review_ends_the_run(self):
+        # Tekton stops a pod's sidecars only once its TaskRun is done, which a retried attempt never is: a retry left
+        # the failed pod's github sidecar holding the volume, and the retry's pod waited for it until the run was
+        # cancelled (docs/tooling/root-causes/2026-11-02-failed-reviews-never-end.md). The task never retries;
+        # Octomaton reruns a review whose pod the cluster took away.
+        for name in ("pipelinerun.yaml", "review.task.yaml"):
+            with self.subTest(file=name), open(os.path.join(REVIEWER_DIR, name), encoding="utf-8") as f:
+                self.assertNotRegex(f.read(), r"(?m)^\s*retries:")
 
 
 def step_script(step):

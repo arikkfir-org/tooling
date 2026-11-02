@@ -92,9 +92,11 @@ spec:
         value: $(tasks.review.results.check-summary)
     tasks:
       - name: review
-        # A failure retries the task, the model's run included: github.py retries each of report's requests itself,
-        # so only an outage or a refusal (the head moved, which supersedes the run anyway) gets this far.
-        retries: 1
+        # No retries: a failure ends the run at once, with its error on the check. Tekton stops a pod's sidecars only
+        # once its TaskRun is done, which a retried attempt never is, so a retry left the failed pod's github sidecar
+        # running, holding the volume that the retry's pod, on another node, waited for until the run was cancelled
+        # (docs/tooling/root-causes/2026-11-02-failed-reviews-never-end.md). A run that loses its pod to the cluster
+        # runs again through Octomaton's disruption reruns (.octomaton.yaml), with a volume of its own.
         timeout: 55m
         workspaces:
           - name: shared

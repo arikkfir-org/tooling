@@ -117,7 +117,7 @@ sequenceDiagram
   participant P as report
   A->>GH: request a review from arikkfir-reviewer
   GH->>OCT: pull_request (review_requested)
-  OCT->>GH: read the repository's and tooling's .octomaton.yaml and tooling's reviewer/pipelinerun.yaml (default branches)
+  OCT->>GH: read the repository's and tooling's .octomaton.yaml and tooling's reviewer/pipelinerun.yaml and review.task.yaml (default branches)
   OCT->>S: start the review pod, with check AI Review on the head commit
   S->>GH: clone tooling's reviewer/ anonymously, then, with the token, the pull request's repository while state.py reads the pull request, its reviews and threads
   S->>S: write pr.json, pr.diff and pr.log at the checkout's root
@@ -133,8 +133,8 @@ sequenceDiagram
 
 | Piece | Where | What |
 | --- | --- | --- |
-| Trigger | `tooling`: `organization.pipelines` in `.octomaton.yaml` (the organization repository), read at its default branch | Pipeline `review` (`AI Review`) for every repository, on `review_request` from `arikkfir-reviewer`; params from the template context; a read-only installation token for every repository; the two Secrets it may mount; a one-hour timeout |
-| PipelineRun | `tooling`: `reviewer/pipelinerun.yaml`, read at its default branch for every repository | Task `review`: its sidecar and six steps, the volume, the ServiceAccount, the sandbox label, DNS and resources |
+| Trigger | `tooling`: `organization.pipelines` in `.octomaton.yaml` (the organization repository), read at its default branch | Pipeline `review` (`AI Review`) for every repository, on `review_request` from `arikkfir-reviewer`; params from the template context; a read-only installation token for every repository; the two Secrets it may mount; a one-hour timeout; one rerun of a run whose pod the cluster took away |
+| PipelineRun | `tooling`: `reviewer/pipelinerun.yaml` and its Task `reviewer/review.task.yaml`, which Octomaton inlines, read at its default branch for every repository | The PipelineRun: the volume, the ServiceAccount, the sandbox label, DNS, resources and timeouts. The Task `review`: its sidecar and six steps |
 | Scripts and prompt | `tooling`: `reviewer/` | `state.py` writes `pr.json`; `brief.py` writes the model's first message; `findings.py` checks `findings.json`; `report.py` posts the review through `github.py`; `github_proxy.py` serves GitHub in the sidecar; `prompt.md` and `opencode.json`. Standard-library Python, covered by `tests/test_reviewer.py` in `tooling`'s CI. Every step runs them from `tooling`'s default branch, and `report` and the sidecar from fresh clones of their own, never the volume's |
 | Image | `tooling`: `reviewer/image/`, published by `reviewer-image` (`.tekton/reviewer-image.yaml`) on a push to `main` that changes it, as `ci-tooling-publish`, which holds `roles/artifactregistry.writer` on the hub's `images` repository ([root gcp](../../infra/terraform/gcp.md#iam)); `reviewer-image-check` builds it for a pull request that changes it | `me-west1-docker.pkg.dev/arikkfir/images/reviewer`, tagged with the commit's short SHA and `main` ([the image](#the-image)). Built in `octomaton` until October 2026 ([host-agnostic Octomaton](../../octomaton/designs/host-agnostic.md)) |
 | Octomaton | `octomaton` | The `review_request` trigger, organization pipelines, `secrets`, `githubToken.repositories: all` and the refusal of remote Tekton references ([pull request reviewers](../../octomaton/designs/pr-reviewer.md)) |
@@ -146,7 +146,8 @@ Octomaton knows nothing of the reviewer: it runs an organization pipeline on a r
 | Need | What `review` sets |
 | --- | --- |
 | A trigger for a review requested from `arikkfir-reviewer` | `on.review_request` with `reviewers: [arikkfir-reviewer]` |
-| One definition for every repository, which no pull request can change | An organization pipeline in this repository's `.octomaton.yaml` (the hub's organization repository, Octomaton's `OCTOMATON_ORGANIZATION_REPOSITORY`) and its `reviewer/pipelinerun.yaml`, both read at `tooling`'s default branch |
+| One definition for every repository, which no pull request can change | An organization pipeline in this repository's `.octomaton.yaml` (the hub's organization repository, Octomaton's `OCTOMATON_ORGANIZATION_REPOSITORY`) and its `reviewer/pipelinerun.yaml` and `reviewer/review.task.yaml`, all read at `tooling`'s default branch |
+| A review whose pod the cluster took away runs again | `disruptions: {reruns: 1}`: a run that failed only because its pod lost its machine (a Spot node reclaimed, an eviction) runs again as a new run, with a volume of its own, while the check stays in progress ([Octomaton's disruption reruns](https://github.com/arikkfir-org/octomaton#pipelines)) |
 | The model's key and `arikkfir-reviewer`'s token, which no pull request can reach | `secrets: [reviewer-deepseek-api-key, reviewer-github-pat]`. Only a pipeline read at a default branch may list them, so no pull request can change what mounts them; another repository's own default-branch pipeline could, since every tenant holds them |
 | A token that reads every repository, internal ones (`fin`) included | `githubToken.repositories: all`, with `contents: read` and `pull_requests: read` |
 | An image with the model's tools | Nothing from Octomaton: [the image](#the-image) is built here, by an ordinary pipeline |
@@ -163,7 +164,7 @@ Octomaton knows nothing of the reviewer: it runs an organization pipeline on a r
 | Resources | The task requests 500m CPU and 1Gi, with a 4Gi memory limit and no CPU limit; the sidecar requests 50m and 64Mi, with a 256Mi limit | Sized from the 18 reviews of 2026-10-02: the model's steps averaged 0.57 of a core (0.93 at most) and peaked at 950 MiB, so concurrent reviews share a node and use idle cores beyond their request |
 | Volume | Workspace `shared`: one 50Gi `ReadWriteOnce` claim per run, which Octomaton deletes an hour after the run (`OCTOMATON_RETENTION_FREE_PVCS_AFTER`, [server configuration](https://github.com/arikkfir-org/octomaton#server-configuration)) | Holds the checkout, `.review/` and opencode's state, which every step shares |
 | Token | Workspace `github-token`, Octomaton's installation token, an isolated workspace that only the sidecar (at `/workspace/github-token`) and `clone` (at `/var/run/github-token`, outside the `/workspace` every step shares) mount | The model's steps never hold it. Isolated workspaces are a Tekton beta feature: without it the run is refused |
-| Timeouts and retries | Run 1h, task 55m; the task retries once | A lost node runs the whole review again, from `clone` |
+| Timeouts and retries | Run 1h, task 55m; the task never retries, and Octomaton reruns a run whose pod the cluster took away, once | A failure ends the run at once, with its error on the check: Tekton stops a pod's sidecar only once its TaskRun is done, which a retried attempt never is, so a retry's pod waited for the volume the failed pod's sidecar still held ([stuck review retries](../root-causes/2026-11-02-failed-reviews-never-end.md)). A lost node still runs the whole review again, from `clone`, in a new run |
 
 | Container | Holds | Does |
 | --- | --- | --- |
@@ -263,7 +264,7 @@ Tekton stops the sidecar once the last step is done by swapping its image, which
 /tmp/<repository>/      review, fix: other repositories the model clones through the proxy (each step's own /tmp)
 ```
 
-The four files at the checkout's root are untracked. `clone` refuses a repository whose root already has one, a link included: the pull request controls the checkout, and a link would send `clone`'s writes, or the model's, anywhere on the volume, `.review/` included. On a retry, `clone` starts from scratch.
+The four files at the checkout's root are untracked. `clone` refuses a repository whose root already has one, a link included: the pull request controls the checkout, and a link would send `clone`'s writes, or the model's, anywhere on the volume, `.review/` included. `clone` starts from scratch all the same, though every run has a volume of its own.
 
 ### `pr.json`
 
@@ -399,7 +400,7 @@ A reply repeats the first comment's heading without the marker. When the pull re
 
 Then, in order:
 
-1. If one of the reviewer's last 100 reviews ends with this PipelineRun's marker (`<!-- reviewer-run:<run> -->`), a retried `report` only resolves threads: the review is already posted.
+1. If one of the reviewer's last 100 reviews ends with this PipelineRun's marker (`<!-- reviewer-run:<run> -->`), `report` only resolves threads: the review is already posted. Since the task stopped retrying, only a `report` run twice in one PipelineRun would find it; a rerun is a new PipelineRun, with a marker of its own.
 2. Otherwise, if the pull request's head is no longer the reviewed commit, it refuses ("request a new review"); a new head while the review is still requested has already started a new run.
 3. It deletes any pending review the reviewer left (an interrupted `report`, or one whose submission GitHub refused after a push), whose threads and replies neither `state.py` nor `report.py` reads: they see submitted comments only. It creates a pending review on the reviewed commit, unresolves, replies and adds threads in it, and submits it with the verdict and a body of the summary, the counts and the marker. A line anchor GitHub refuses becomes a comment on the whole file, naming its lines (`Location: path:line`).
 4. It resolves the threads of findings no longer raised.
@@ -444,7 +445,7 @@ The results travel in the `report` container's termination message, as Go-encode
 - The installation token reads every repository's code and pull requests. Only `clone` and the sidecar mount it, the sidecar serves reads only, and the model's steps refuse to start where it is mounted. A steered model can't take the token, but it can read any repository through the sidecar, internal ones (`fin`) included, and send what it reads anywhere: the price of a reviewer that checks a change against the rest of the organization.
 - `arikkfir-reviewer`'s token lives only in the `ci-*` namespaces, as Secret `reviewer-github-pat`. Octomaton lets only `review` mount it, and only the `report` container has it: the model's steps run before it in the same pod and can't read another container's environment. Its contents write, which resolving threads needs, would let a stolen token push branches and tags and manage releases, but never push to a default branch. It expires within a year.
 - DeepSeek unreachable, a timeout, or a `findings.json` still invalid after `fix` fails the task and the check, and no review is posted. Re-run the check, or request the review again.
-- A lost node (the CI pool runs on Spot VMs, [node pools](../../infra/designs/node-pools.md)) or a failed `report` retries the task once, from `clone`. `report`'s GitHub calls retry on their own, so only an outage or a refusal (the head moved, which supersedes the run anyway) fails it there, and its run marker keeps a retry from posting a second review.
+- A lost node (the CI pool runs on Spot VMs, [node pools](../../infra/designs/node-pools.md)) fails the run, and Octomaton runs it again once, as a new run from `clone` with a volume of its own, while the check stays in progress. A node lost after `report` posted the review, before the run ended, posts a second review of the commit. Any other failure ends the run at once: the task never retries, since a retried attempt's pod kept its sidecar running, and the run's volume with it ([failed reviews never end](../root-causes/2026-11-02-failed-reviews-never-end.md)). `report`'s GitHub calls retry on their own, so only an outage or a refusal (the head moved, which supersedes the run anyway) fails it there.
 - A new request for the same pull request supersedes the running review, and so do new commits while the review is still requested: the review starts again at the new head. A push after the review is posted starts nothing until the review is requested again.
 - The image's `main` tag moves with every merge that changes `reviewer/image/`, so a broken image breaks the next review in every repository. `reviewer-image-check` builds it on pull requests but runs no review. Revert to roll back: the revert publishes the old image as `main`. A failed publication leaves `main` where it was.
 - `reviewer-image`'s build step runs unconfined by seccomp and AppArmor, as a non-root user without privileges, and only from `main`. Its registry login is an hour-long access token of `ci-tooling-publish`, which can also write bucket `arikkfir-claude`; BuildKit uses it to push and never hands it to the Dockerfile's `RUN` steps.

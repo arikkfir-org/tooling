@@ -77,6 +77,10 @@ organization:
         repositories: all
       secrets: [reviewer-deepseek-api-key, reviewer-github-pat]
       timeout: 1h
+      # A review whose pod the cluster took away (a Spot node reclaimed, an eviction) runs again, as a new run with a
+      # volume of its own; any other failure ends the run, since its task doesn't retry (reviewer/pipelinerun.yaml).
+      disruptions:
+        reruns: 1
     # The docs site (arikkfir-org/docs, hub/designs/docs-site-composition.md): every repository's docs (the docs
     # repository's whole tree, any other's docs/) are checked against the other repositories' published layers on pull
     # requests and in the merge queue, and published to the repository's own layer on every push to main.
