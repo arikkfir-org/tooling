@@ -25,7 +25,7 @@ flowchart LR
 | Piece | Value |
 | --- | --- |
 | Identity | `claude-code@arikkfir.iam.gserviceaccount.com`, made by hand and adopted by `infra`'s `terraform/gcp`; the Claude Code environment holds its key, made by hand, and its proxy adds it to requests for `*.googleapis.com` ([bootstrap](../../infra/runbooks/bootstrap.md), step 12) |
-| Roles (`infra`'s `terraform/gcp`) | `roles/viewer`: reads the project, the cluster's objects and pod logs included, but no Kubernetes Secret or Secret Manager payload, and changes nothing. `roles/mcp.toolUser`: calls Google's MCP servers' tools. `roles/storage.objectViewer` on bucket `arikkfir-docs`: lists and reads the docs site's layers |
+| Roles (`infra`'s `terraform/gcp`) | `roles/viewer`: reads the project, the cluster's objects and pod logs included, but no Kubernetes Secret or Secret Manager payload, and changes nothing. `roles/mcp.toolUser`: calls Google's MCP servers' tools. `roles/storage.objectViewer` on bucket `arikkfir-docs`: lists and reads the docs site's layers. `roles/secretmanager.secretAccessor` on each of `terraform/gcp`'s session secrets: reads their payloads, which sessions use as credentials ([IAM](../../infra/terraform/gcp.md#iam)) |
 | MCP server | `gke`, `https://container.googleapis.com/mcp`, in `claude/mcp.json`, at user scope in every session |
 | Without a prompt | its read tools, allowed in `claude/settings.json`: `get_*`, `list_*`, `describe_*` and `check_*` |
 | Denied | its write tools, denied there: `apply_*`, `patch_*`, `delete_*`, `create_*`, `update_*` and `cancel_*`, which IAM refuses as well. `tests/test_settings.py` checks each of the server's tools against both lists |
@@ -54,6 +54,7 @@ Reads go through Cloud Storage's XML API, `https://storage.googleapis.com/<bucke
 ## Risks
 
 - The key reads the whole project, ConfigMaps and logs included, and every repository's docs, `fin`'s (internal) included. Revoke it by disabling or deleting the key of `claude-code@`.
+- The key also reads the session secrets' payloads, such as the Cobranch API key that pushes to and delivers organization `kfirs`'s website: a leaked key can change that site until the API key is revoked in Cobranch.
 - As a project Viewer, `claude-code@` also reads objects through the bindings Cloud Storage adds to a bucket created with uniform access: `projectViewer` gets `roles/storage.legacyBucketReader` and `roles/storage.legacyObjectReader`. So it reads every bucket `terraform/gcp` creates, `arikkfir-fin`'s raw statements, scrape videos and traces included. The owner keeps those bindings.
 - Google may rename the MCP server's tools; a renamed read tool then asks for permission, and a renamed write tool is still refused by IAM.
 - A session reads a layer as `main` last published it: a page changed in an open pull request isn't there yet.
