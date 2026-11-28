@@ -235,7 +235,7 @@ Every meaningful unit of work (a new component, a change of architecture, a new 
   - A boolean is named for the fact it states (`valid`, `freshCall`, `isClusterRole`); nothing else is named like one.
   - A count ends in `Count`, an ID in `ID`, an error in `Err`; a duration names its unit or ends in `Timeout`, `Interval` or `TTL`; a path, a URL or a prefix says so. In a language that writes names another way, the same word in its casing: `source_count`, `title-path`.
   - The wider the scope, the more specific the name: `valid` in a five-line function, `validRequest` beyond it.
-  - An acronym inside a mixed-case name keeps its capitals, as Go writes them (`spendUSD`, `orgID`, `baseURL`); standing alone, or leading a name that starts in lower case, it is lower-case (`usd`, `urlPath`).
+  - An acronym inside a mixed-case name keeps its capitals, as Go writes them (`spendUSD`, `orgID`, `baseURL`, never `spendUsd`, `orgId`, `baseUrl`); standing alone, or leading a name that starts in lower case, it is lower-case (`id`, `usd`, `urlPath`). This goes for every acronym and every language and format that writes mixed-case names: Go, JavaScript, JSON and YAML keys, an API's fields and parameters, Helm values.
   - Generated code takes its names from its origin: rename there and regenerate, never in the output.
 - **Less is more**: reuse what exists rather than duplicate it, unless there is a good reason not to.
 - **Refactor to align**: when things need to line up, change the existing code. Don't build abstractions or scaffolding around it to avoid the risk of touching it.
